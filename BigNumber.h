@@ -1,14 +1,21 @@
+#include<stdbool.h>
+
 typedef struct{
-    char* Digits;
-    unsigned int NrOfDigits;
+    char* Digits; //absolute value of the number
+    unsigned int NrOfDigits;  //size
+    bool IsNegative; //true if it is negative 
 }BigNumber;
 
-BigNumber* Init(char* value);
-BigNumber* Sum(BigNumber* Number1, BigNumber* Number2);
-BigNumber* Multiply(BigNumber* Number1, BigNumber* Number2);
-BigNumber* FromUnsignedIntegerToBigNum(unsigned int number);
-int BigNumberCompare(BigNumber* Number1, BigNumber* Number2);
-BigNumber* Factorial(unsigned int Number);
-char *ToString(BigNumber *Number);
-void PrintBigNumber(BigNumber *Number);
-void FreeMemory(BigNumber *Number);
+BigNumber* Init(char* value); //Construct a BigNum from a string
+BigNumber* Sum(BigNumber* Number1, BigNumber* Number2);  //Number1+Number2
+BigNumber* Subtract(BigNumber* Number1, BigNumber* Number2); //Number1-Number2
+BigNumber* Multiply(BigNumber* Number1, BigNumber* Number2); //Number1*Number2
+BigNumber* FromUnsignedIntegerToBigNum(unsigned int number); 
+BigNumber* FromSignedIntegerToBigNum(int number);
+int BigNumberCompare(BigNumber* Number1, BigNumber* Number2); //return 1 if Number1>Number2, -1 if Number1<Number2 , 0 if  Number1==Number2
+int BigNumberCompareAbsoluteValue(BigNumber* Number1, BigNumber* Number2);  //return 1 if |Number1|>|Number2|, -1 if |Number1|<|Number2| , 0 if  |Number1|==|Number2|
+BigNumber* Factorial(unsigned int Number); //Calculates the factorial of an unsigned integer {(n+1)!=(n+1)*n! ,0!=1}
+void Increment(BigNumber* Number); //Increments the value by 1
+char *ToString(BigNumber *Number); //Converts a BigNumber to a String
+void PrintBigNumber(BigNumber *Number);  //Prints a BigNumber
+void FreeMemory(BigNumber *Number);  //Destroyes the BigNumber
