@@ -10,6 +10,14 @@ typedef struct{
     bool IsNegative; //True if the number is negative, false otherwise
 }BigNumber;
 
+void CleanTrailingZeros(BigNumber* Number)  //Eliminates Unecesary 0`s from the number
+{
+    while (Number->NrOfDigits>1 && (Number->Digits[Number->NrOfDigits - 1] == '0'))
+    {
+      Number->NrOfDigits--;
+    }
+    Number->Digits[Number->NrOfDigits] = '\0';
+}
 
 void SwapNumbersInMemory(BigNumber **Number1,BigNumber **Number2)
 {
@@ -283,8 +291,7 @@ BigNumber* Sum(BigNumber* Number1, BigNumber* Number2)
     }
     else 
     {
-        // cmp == 0, meaning |Number1| == |Number2| (e.g., 5 + -5). 
-        // Result is exactly 0. Sign remains false.
+        //|Number1| == |Number2| Sign remains false.
         IsNegative = false;
     }
     
@@ -425,12 +432,104 @@ BigNumber* FromSignedIntegerToBigNum(int number)
     return PrivateConstructor(Digits,NrOfDigits,IsNegative);
 }
 
+BigNumber* ShiftRightNPositions(BigNumber *Number,unsigned int N) //For multiplication by positive integer powers of 10 and for Long Division
+{
+   if(N<=0) return Number; //no change needed
+
+   char *NewDigits=malloc(sizeof(char)*(Number->NrOfDigits+N+1)); //Prev Digits + positions +'\0'
+   strcpy(NewDigits,Number->Digits);
+
+   unsigned int index=0;
+   for(index = 0; index < N; index++) //add the zerous
+    {
+        NewDigits[index] = '0';
+    }
+
+   strcpy(NewDigits+N,Number->Digits);  //copy prev digits and deallocate memory
+   free(Number->Digits);
+
+   Number->Digits=NewDigits;
+   Number->NrOfDigits+=N;  //increment by positions
+
+   return Number;
+}
+
+BigNumber* LongDivision(BigNumber* Dividend, BigNumber* Divisor,BigNumber *Remainder)  //Time Complexity O(Divident.size+Divizor.size) ,same as Multiplicity
+{
+    BigNumber* Zero=Init("0");
+
+    if(BigNumberCompareAbsoluteValue(Divisor,Zero)==0)  //If Divizor is 0
+      {
+        printf("DIVIZION BY 0, RETURNED NULL");
+        free(Zero);
+        return NULL;
+      }
+
+    if(BigNumberCompareAbsoluteValue(Dividend,Divisor)==-1)   //If Divizor is less than Divident than Quotint is 0 and Remainder= Divizor
+       {
+          return Zero;
+       }
+    
+    bool IsDivizorNegative=Divisor->IsNegative;
+    if(IsDivizorNegative)
+      {MultiplyByNegativeOne(Divisor);} //If it is not turned into a pozitive ,Long Division diverges to +inf
+      
+    char* QuotientString = calloc(Dividend->NrOfDigits + 1, sizeof(char));
+    BigNumber* CurrentRemainder = Init("0");
+
+    for (int i = Dividend->NrOfDigits - 1; i >= 0; i--)
+    {
+        CurrentRemainder=ShiftRightNPositions(CurrentRemainder,1);
+        CurrentRemainder->Digits[0]=Dividend->Digits[i];
+        CleanTrailingZeros(CurrentRemainder);
+        int quotient_digit = 0;
+        while (BigNumberCompareAbsoluteValue(CurrentRemainder, Divisor) >= 0)
+        {
+            BigNumber* NextRemainder = Subtract(CurrentRemainder, Divisor);
+            FreeMemory(CurrentRemainder);
+            CurrentRemainder = NextRemainder;
+            quotient_digit++;
+        }
+
+        QuotientString[i] = quotient_digit + '0';
+    }
+
+    //Clean up trailing zeros in the Quotient string
+    unsigned int ActualDigits = Dividend->NrOfDigits;
+    while (ActualDigits > 1 && QuotientString[ActualDigits - 1] == '0')
+    {
+        ActualDigits--;
+    }
+    QuotientString[ActualDigits] = '\0';
+
+    bool IsNegative=false;
+    if(Dividend->IsNegative !=  IsDivizorNegative)
+       IsNegative=true;
+    BigNumber* FinalQuotient = PrivateConstructor(QuotientString, ActualDigits,IsNegative);
+    
+    if(Remainder==NULL)
+      {
+        FreeMemory(CurrentRemainder);
+      }
+    else
+      {
+        //If user wants to retain the Remaider we copy its values from CurentRemainder and Deallocate his memory
+        Remainder->Digits=CurrentRemainder->Digits;
+        Remainder->NrOfDigits=CurrentRemainder->NrOfDigits;
+        Remainder->IsNegative=CurrentRemainder->IsNegative;
+        free(CurrentRemainder);
+      }
+    
+    if(IsDivizorNegative)
+      {MultiplyByNegativeOne(Divisor);} //revert back to the original divisor
+    return FinalQuotient;
+}
 
 BigNumber* Factorial(unsigned int Number)
 {
     BigNumber* FactorialRezult=Init("1");
     unsigned int index=2;
-    for(index=1;index<=Number;index++)
+    for(index=2;index<=Number;index++)
       {
          FactorialRezult=Multiply(FactorialRezult,FromUnsignedIntegerToBigNum(index));
       }
@@ -443,6 +542,10 @@ char *ToString(BigNumber *Number)
     if(Number->IsNegative)  //Allocate memory depending on sign
       {
         String=malloc(Number->NrOfDigits+2);
+        if(String==NULL){
+          perror("Allocating Mem for ToString Failed");
+          exit(-2);
+        }
         String[0]='-';
         unsigned int index=0;
         for(index=0;index<Number->NrOfDigits;index++) //as it is stored in reverse we need to display in reverse
@@ -453,6 +556,10 @@ char *ToString(BigNumber *Number)
     else
       {
         String=malloc(Number->NrOfDigits+1);
+        if(String==NULL){
+          perror("Allocating Mem for ToString Failed");
+          exit(-2);
+        }
         unsigned int index=0;
         for(index=0;index<Number->NrOfDigits;index++) //as it is stored in reverse we need to display in reverse
             String[index]=Number->Digits[Number->NrOfDigits-index-1];
