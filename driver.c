@@ -11,6 +11,9 @@ int main(int argc,char **argv)
     BigNumber* Nr6=Multiply(Nr1,Nr2);
     BigNumber* Remainder=Init("1");
     BigNumber* Nr7=LongDivision(Nr1,Nr2,Remainder);
+
+    BigFloatNumber* NrF1=InitFloat("3.14159265358979");
+    PrintBigFloatNumber(NrF1);
     printf("After Initialization\n");
 
     printf("FirstNumber:");PrintBigNumber(Nr1);printf("\n");
@@ -34,6 +37,7 @@ int main(int argc,char **argv)
     FreeMemory(Nr6);
     FreeMemory(Nr7);
 
+    FreeMemoryFloat(NrF1);
     printf("After Memory Free\n");
     return 0;
 }

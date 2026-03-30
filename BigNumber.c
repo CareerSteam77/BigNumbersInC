@@ -10,6 +10,11 @@ typedef struct{
     bool IsNegative; //True if the number is negative, false otherwise
 }BigNumber;
 
+typedef struct{
+   BigNumber *Mantissa; //significand
+   long int Exponent; 
+}BigFloatNumber;  // BigFloatNumber= significand* 10^Exponent ;Exemple: 123.45= 12345*10^(-2)
+
 void CleanTrailingZeros(BigNumber* Number)  //Eliminates Unecesary 0`s from the number
 {
     while (Number->NrOfDigits>1 && (Number->Digits[Number->NrOfDigits - 1] == '0'))
@@ -48,9 +53,34 @@ bool VerifyStringIsNumber(const char *Value)
         if(isdigit(Value[index])==false)
           return false;
        }
+
     return true;
 }
 
+bool VerifyStringIsDecimal(const char *Value)
+{
+  //check for string of the form "-x1x2..'.'x3..." and "x1x2..'.'x3..." where xi is a digit and it need to have one decimal
+    if(Value==NULL || Value[0]=='\0')  //check for NULL and Empty string
+       return false;
+
+    if(!isdigit(Value[0]) && Value[0]!='-')
+       return false;
+    
+    short int DecimalPointCounter=0; //it should be always one ,otherwise Init fails
+    for(unsigned int index=1;index<strlen(Value);index++)
+       {
+        if(isdigit(Value[index])==false && (Value[index]!='.'))
+          return false;
+
+        if(Value[index]=='.')
+          DecimalPointCounter++;
+       }
+      
+    if(DecimalPointCounter!=1)
+      return false;
+
+    return true;
+}
 
 BigNumber* Init(const char* Value)   //Takes a string, checks if it a valid number and construct a BigNumber
 {
@@ -104,10 +134,64 @@ BigNumber* Init(const char* Value)   //Takes a string, checks if it a valid numb
         }
 }
 
+BigFloatNumber *InitFloat(char *Value)
+{
+     if(VerifyStringIsDecimal(Value)==false)
+       {
+          return NULL;
+       }
+      
+     BigFloatNumber *Number=malloc(sizeof(BigFloatNumber));
+     if(Number==NULL)
+       {
+          perror("Allocating Memory for BigFloat Failed");      //allocating memory for Mantissa and BigFloat
+          exit(-1);
+       }
+    
+    char *DigitsSignificand=malloc(sizeof(char)*strlen(Value));
+    unsigned int FractionalDigits=0;
+    unsigned int index=0;
+    unsigned int indexDigitsSignificand=0;
+    bool StartCounting=false;
+    for(index=0;index<strlen(Value);index++)
+      {
+          if(Value[index]=='.')
+            StartCounting=true;
+          else
+            {
+              DigitsSignificand[indexDigitsSignificand]=Value[index];
+              if(StartCounting==true)
+                FractionalDigits++;
+              indexDigitsSignificand++;
+            }
+      }
+    DigitsSignificand[indexDigitsSignificand]='\0';
+    int first_valid_digit = 0;
+    while (DigitsSignificand[first_valid_digit] == '0' && DigitsSignificand[first_valid_digit + 1] != '\0')
+    {
+        first_valid_digit++;
+    }
+
+
+    Number->Exponent=-FractionalDigits;
+    Number->Mantissa=Init(&DigitsSignificand[first_valid_digit]);
+    
+    free(DigitsSignificand);
+    return Number;
+}
+
 void FreeMemory(BigNumber *Number)
 {
+    if (Number == NULL) return;
     free(Number->Digits);
     free(Number);
+}
+
+void FreeMemoryFloat(BigFloatNumber *Number)
+{
+   if (Number == NULL) return;
+   FreeMemory(Number->Mantissa);
+   free(Number);
 }
 
 void MultiplyByNegativeOne(BigNumber *Number)
@@ -129,6 +213,26 @@ BigNumber *PrivateConstructor(char *Digits,unsigned int NrOfDigits,bool IsNegati
     Number->IsNegative=IsNegative;
     
     return Number;
+}
+
+bool IsEqual(BigNumber *Number1,BigNumber *Number2)  //returns true if there are equal, false otherwise
+{
+    if(Number1->IsNegative!=Number2->IsNegative)
+       return false;
+    else
+      {
+          if(Number1->NrOfDigits!=Number2->NrOfDigits)
+             return false;
+          
+          unsigned int index=0;
+          for(index=0;index<Number1->NrOfDigits;index++)
+             {
+                  if(Number1->Digits[index]!=Number2->Digits[index])
+                     return false;
+             }
+
+          return true;
+      }
 }
 
 int BigNumberCompareAbsoluteValue(BigNumber* Number1, BigNumber* Number2)  //return 1 if |Number1|>|Number2|, -1 if |Number1|<|Number2| , 0 if  |Number1|==|Number2|
@@ -570,9 +674,60 @@ char *ToString(BigNumber *Number)
 
 void PrintBigNumber(BigNumber *Number)
 {
+    if(Number==NULL)
+      printf("NULL");
+
     if(Number->IsNegative==true)
       printf("-");
     for(unsigned int index=0;index<Number->NrOfDigits;index++) //as it is stored in reverse we need to display in reverse
       printf("%c",Number->Digits[Number->NrOfDigits-index-1]);
     printf(" ");
+}
+
+void PrintBigFloatNumber(BigFloatNumber *Number)
+{
+   if(Number==NULL)
+     printf("NULL");
+
+   if(Number->Mantissa->IsNegative==true)
+      printf("-");
+    
+   if(Number->Exponent>=0)
+     {
+       for(unsigned int index=0;index<Number->Mantissa->NrOfDigits;index++) //as it is stored in reverse we need to display in reverse
+          printf("%c",Number->Mantissa->Digits[Number->Mantissa->NrOfDigits-index-1]);
+       
+        for(unsigned int index=0;index<Number->Exponent;index++)
+          printf("0");
+
+       printf(" ");
+     }
+   else
+     {
+        long int AbsoluteValueExponent=(-1)*Number->Exponent;
+        if(AbsoluteValueExponent >= Number->Mantissa->NrOfDigits)
+         {
+            printf("0.");
+            for(unsigned int i=0;i<AbsoluteValueExponent-Number->Mantissa->NrOfDigits; i++)
+            {
+                printf("0");
+            }
+            for(unsigned int index=0;index<Number->Mantissa->NrOfDigits;index++) //as it is stored in reverse we need to display in reverse
+            {
+              printf("%c",Number->Mantissa->Digits[Number->Mantissa->NrOfDigits-index-1]);
+            }
+            printf(" ");
+         }
+        else
+          {
+              for(unsigned int index=0;index<Number->Mantissa->NrOfDigits;index++) //as it is stored in reverse we need to display in reverse
+            {
+              if(index == Number->Mantissa->NrOfDigits-AbsoluteValueExponent)
+                printf(".");
+              printf("%c",Number->Mantissa->Digits[Number->Mantissa->NrOfDigits-index-1]);
+            }
+            printf(" ");
+          }
+ 
+     }
 }
