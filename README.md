@@ -1,2 +1,2 @@
 # BigNumbersInC
-An implementation of  Arbitrary-precision arithmetic in good old C
+An implementation of  Arbitrary-precision arithmetic for both integers and floating point numbers in C
