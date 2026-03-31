@@ -66,7 +66,7 @@ bool VerifyStringIsDecimal(const char *Value)
     if(!isdigit(Value[0]) && Value[0]!='-')
        return false;
     
-    short int DecimalPointCounter=0; //it should be always one ,otherwise Init fails
+    short int DecimalPointCounter=0; //it should be always 1 or 0 ,otherwise Init fails  
     for(unsigned int index=1;index<strlen(Value);index++)
        {
         if(isdigit(Value[index])==false && (Value[index]!='.'))
@@ -76,7 +76,7 @@ bool VerifyStringIsDecimal(const char *Value)
           DecimalPointCounter++;
        }
       
-    if(DecimalPointCounter!=1)
+    if(DecimalPointCounter>1)
       return false;
 
     return true;
@@ -187,11 +187,83 @@ void FreeMemory(BigNumber *Number)
     free(Number);
 }
 
+BigNumber* CloneBigNumber(BigNumber* Original)  //Functions Clones the Original by allocating new memory keeping the old one intact
+{
+    if (Original == NULL) return NULL;
+    
+    BigNumber* Copy=malloc(sizeof(BigNumber));
+    Copy->NrOfDigits=Original->NrOfDigits;
+    Copy->IsNegative=Original->IsNegative;
+    
+    Copy->Digits=malloc(Original->NrOfDigits + 1);
+    strcpy(Copy->Digits,Original->Digits);
+    
+    return Copy;
+}
+
+BigFloatNumber *FromBigNumber(BigNumber *Number) //Construct a new Float from Number, making a conversion by copying the digits and setting exponent to 0
+{
+  if(Number==NULL)
+    {
+      perror("ERROR:You are Trying to convert a NULL");
+      exit(-3);
+    }
+
+  BigFloatNumber *NumberFloat=malloc(sizeof(BigFloatNumber));
+  if(NumberFloat==NULL)
+    {
+      perror("Allcating Memory for NumberFloat Failed");
+      exit(-1);
+    }
+  NumberFloat->Mantissa=malloc(sizeof(BigNumber));
+  if(NumberFloat->Mantissa==NULL)
+    {
+      perror("Allcating Memory for NumberFloat->Mantissa Failed");
+      exit(-1);
+    }
+
+  NumberFloat->Mantissa->Digits=malloc(sizeof(char)*(Number->NrOfDigits+1));
+  if(NumberFloat->Mantissa->Digits ==NULL)
+    {
+      perror("Allcating Memory for NumberFloat->Mantissa->Digits Failed");
+      exit(-1);
+    }
+  
+  strcpy(NumberFloat->Mantissa->Digits,Number->Digits);  //copy the digits and store in Mantissa
+  NumberFloat->Mantissa->IsNegative=Number->IsNegative;
+  NumberFloat->Mantissa->NrOfDigits=Number->NrOfDigits;
+  NumberFloat->Exponent=0;  
+
+  return NumberFloat;
+}
+
 void FreeMemoryFloat(BigFloatNumber *Number)
 {
    if (Number == NULL) return;
    FreeMemory(Number->Mantissa);
    free(Number);
+}
+
+BigNumber* ShiftRightNPositions(BigNumber *Number,unsigned int N) //For multiplication by positive integer powers of 10 and for Long Division
+{
+   if(N<=0) return Number; //no change needed
+
+   char *NewDigits=malloc(sizeof(char)*(Number->NrOfDigits+N+1)); //Prev Digits + positions +'\0'
+   strcpy(NewDigits,Number->Digits);
+
+   unsigned int index=0;
+   for(index = 0; index < N; index++) //add the zerous
+    {
+        NewDigits[index] = '0';
+    }
+
+   strcpy(NewDigits+N,Number->Digits);  //copy prev digits and deallocate memory
+   free(Number->Digits);
+
+   Number->Digits=NewDigits;
+   Number->NrOfDigits+=N;  //increment by positions
+
+   return Number;
 }
 
 void MultiplyByNegativeOne(BigNumber *Number)
@@ -211,6 +283,21 @@ BigNumber *PrivateConstructor(char *Digits,unsigned int NrOfDigits,bool IsNegati
     Number->NrOfDigits=NrOfDigits;
     Number->Digits=Digits;
     Number->IsNegative=IsNegative;
+    
+    return Number;
+}
+
+BigFloatNumber *PrivateConstructorFloat(BigNumber* Mantissa,long int Exponent) 
+{
+   BigFloatNumber* Number=malloc(sizeof(BigFloatNumber));
+   if(Number==NULL)
+      {
+        perror("Memory Allocation for BigFloatNumber failed");
+        exit(-1);
+      }
+    
+    Number->Mantissa=Mantissa;
+    Number->Exponent=Exponent;
     
     return Number;
 }
@@ -341,6 +428,8 @@ void Increment(BigNumber* Number)
 
 BigNumber* Sum(BigNumber* Number1, BigNumber* Number2) 
 {
+  if (Number1 == NULL || Number2 == NULL) return NULL;
+
   if(Number1->IsNegative==Number2->IsNegative) //if they have the same sign |a+b|=|-(a+b)| 
   {
     unsigned int MaxSize=0;
@@ -437,9 +526,82 @@ BigNumber* Sum(BigNumber* Number1, BigNumber* Number2)
   }
 }
 
+BigFloatNumber* SumFloat(BigFloatNumber* Number1,BigFloatNumber* Number2) 
+{
+   if (Number1 == NULL || Number2 == NULL) return NULL;
+
+   //We need to normalize the number with the bigger exponent than use Sum on the Mantissas
+   //For normalization we will use the ShiftRightNpositions
+
+   long int RezultExponent;
+   if(Number1->Exponent<Number2->Exponent)
+      {
+        RezultExponent=Number1->Exponent;
+        unsigned int shift=Number2->Exponent-Number1->Exponent;
+        BigNumber *CloneSecond=CloneBigNumber(Number2->Mantissa);
+        CloneSecond=ShiftRightNPositions(CloneSecond,shift);  //Normalizing the Mantissa
+        
+        BigNumber*RezultSumMatissa=Sum(Number1->Mantissa,CloneSecond);
+        BigFloatNumber *RezultSumNumber=malloc(sizeof(BigFloatNumber));
+        if(RezultSumNumber==NULL)
+          {
+            perror("Allocating Memory for RezultSumNumber failed");
+            exit(-1);
+          }
+        
+        RezultSumNumber->Mantissa=RezultSumMatissa;
+        RezultSumNumber->Exponent=RezultExponent;
+        
+        FreeMemory(CloneSecond);
+        return RezultSumNumber;
+      }
+     else
+      {
+          if(Number1->Exponent>Number2->Exponent)
+          {
+            RezultExponent=Number2->Exponent;
+            unsigned int shift=Number1->Exponent-Number2->Exponent;
+            BigNumber *CloneFirst=CloneBigNumber(Number1->Mantissa);
+            CloneFirst=ShiftRightNPositions(CloneFirst,shift);  //Normalizing the Mantissa
+        
+            BigNumber*RezultSumMatissa=Sum(Number2->Mantissa,CloneFirst);
+            BigFloatNumber *RezultSumNumber=malloc(sizeof(BigFloatNumber));
+            if(RezultSumNumber==NULL)
+              {
+                perror("Allocating Memory for RezultSumNumber failed");
+                exit(-1);
+              }
+        
+            RezultSumNumber->Mantissa=RezultSumMatissa;
+            RezultSumNumber->Exponent=RezultExponent;
+        
+            FreeMemory(CloneFirst);
+            return RezultSumNumber;
+          }
+        else  //Exponents are equal ,NO NORMALIZATION needed
+        {
+            RezultExponent=Number2->Exponent;   
+            BigNumber*RezultSumMatissa=Sum(Number2->Mantissa,Number1->Mantissa);
+            BigFloatNumber *RezultSumNumber=malloc(sizeof(BigFloatNumber));
+            if(RezultSumNumber==NULL)
+              {
+                perror("Allocating Memory for RezultSumNumber failed");
+                exit(-1);
+             }
+        
+            RezultSumNumber->Mantissa=RezultSumMatissa;
+            RezultSumNumber->Exponent=RezultExponent;
+
+            return RezultSumNumber;
+        }
+    }
+  
+  return NULL;
+}
 
 BigNumber* Subtract(BigNumber* Number1, BigNumber* Number2)
 {
+  if (Number1 == NULL || Number2 == NULL) return NULL;
   //Is equivalent to Number1+MultiplyByNegativeOne(Number2)  a-b == a+ (-b)
   MultiplyByNegativeOne(Number2); //change the sign
   BigNumber *Rezult=Sum(Number1,Number2);
@@ -447,8 +609,20 @@ BigNumber* Subtract(BigNumber* Number1, BigNumber* Number2)
   return Rezult;
 }
 
+BigFloatNumber* SubtractFloat(BigFloatNumber* Number1, BigFloatNumber* Number2)
+{
+  if (Number1 == NULL || Number2 == NULL) return NULL;
+  //Is equivalent to Number1+MultiplyByNegativeOne(Number2)  a-b == a+ (-b)
+  MultiplyByNegativeOne(Number2->Mantissa); //change the sign of the second`s Mantissa
+  BigFloatNumber *Rezult=SumFloat(Number1,Number2);
+  MultiplyByNegativeOne(Number2->Mantissa); //reverse the change of sign of the second`s Mantissa
+  return Rezult;
+}
+
 BigNumber* Multiply(BigNumber* Number1, BigNumber* Number2) //O(Size(Number1)+Size(Number2))
 {
+  if (Number1 == NULL || Number2 == NULL) return NULL;
+
     char *RezultProductString=calloc(Number1->NrOfDigits+Number2->NrOfDigits+1,sizeof(char));
     unsigned int MaxPossibleDigits=Number1->NrOfDigits+Number2->NrOfDigits+1;
     bool IsNegative=false;
@@ -483,6 +657,16 @@ BigNumber* Multiply(BigNumber* Number1, BigNumber* Number2) //O(Size(Number1)+Si
     BigNumber* RezultProduct=PrivateConstructor(RezultProductString,NrOfDigits,IsNegative); 
 
     return RezultProduct;
+}
+
+BigFloatNumber* MultiplyFloat(BigFloatNumber *Number1,BigFloatNumber *Number2) //Mantissa can be treated as an BigINT than the result its just Multiply(Mantissa1,Mantissa2)*10^(Exponent1+Exponent2)
+{
+    if (Number1 == NULL || Number2 == NULL) return NULL;
+
+    BigNumber *Mantissa=Multiply(Number1->Mantissa,Number2->Mantissa);
+    long int Exponent=Number1->Exponent+Number2->Exponent;
+    BigFloatNumber *Number=PrivateConstructorFloat(Mantissa,Exponent);
+    return Number;
 }
 
 BigNumber* FromUnsignedIntegerToBigNum(unsigned int number)
@@ -534,28 +718,6 @@ BigNumber* FromSignedIntegerToBigNum(int number)
     
     Digits[NrOfDigits]='\0';
     return PrivateConstructor(Digits,NrOfDigits,IsNegative);
-}
-
-BigNumber* ShiftRightNPositions(BigNumber *Number,unsigned int N) //For multiplication by positive integer powers of 10 and for Long Division
-{
-   if(N<=0) return Number; //no change needed
-
-   char *NewDigits=malloc(sizeof(char)*(Number->NrOfDigits+N+1)); //Prev Digits + positions +'\0'
-   strcpy(NewDigits,Number->Digits);
-
-   unsigned int index=0;
-   for(index = 0; index < N; index++) //add the zerous
-    {
-        NewDigits[index] = '0';
-    }
-
-   strcpy(NewDigits+N,Number->Digits);  //copy prev digits and deallocate memory
-   free(Number->Digits);
-
-   Number->Digits=NewDigits;
-   Number->NrOfDigits+=N;  //increment by positions
-
-   return Number;
 }
 
 BigNumber* LongDivision(BigNumber* Dividend, BigNumber* Divisor,BigNumber *Remainder)  //Time Complexity O(Divident.size+Divizor.size) ,same as Multiplicity
@@ -675,7 +837,10 @@ char *ToString(BigNumber *Number)
 void PrintBigNumber(BigNumber *Number)
 {
     if(Number==NULL)
-      printf("NULL");
+     {
+      printf("NULL ");
+      return;
+     }
 
     if(Number->IsNegative==true)
       printf("-");
@@ -687,7 +852,10 @@ void PrintBigNumber(BigNumber *Number)
 void PrintBigFloatNumber(BigFloatNumber *Number)
 {
    if(Number==NULL)
-     printf("NULL");
+     {
+      printf("NULL ");
+      return;
+     }
 
    if(Number->Mantissa->IsNegative==true)
       printf("-");

@@ -12,8 +12,18 @@ int main(int argc,char **argv)
     BigNumber* Remainder=Init("1");
     BigNumber* Nr7=LongDivision(Nr1,Nr2,Remainder);
 
-    BigFloatNumber* NrF1=InitFloat("3.14159265358979");
-    PrintBigFloatNumber(NrF1);
+    BigFloatNumber* NrF1=InitFloat(pi);
+    BigFloatNumber* NrF2=InitFloat(e);
+    BigFloatNumber* NrF4=FromBigNumber(Nr1);
+    BigFloatNumber* NrF3=MultiplyFloat(NrF1,NrF2);
+    BigFloatNumber* NrF5=SumFloat(NrF1,NrF2);
+    BigFloatNumber* NrF6=SubtractFloat(NrF1,NrF2);
+    PrintBigFloatNumber(NrF4);printf("\n");
+    printf("pi:");PrintBigFloatNumber(NrF1);printf("\n");
+    printf("e:");PrintBigFloatNumber(NrF2);printf("\n");
+    printf("pi*e:");PrintBigFloatNumber(NrF3);printf("\n");
+    printf("pi+e:");PrintBigFloatNumber(NrF5);printf("\n");
+    printf("pi-e:");PrintBigFloatNumber(NrF6);printf("\n");
     printf("After Initialization\n");
 
     printf("FirstNumber:");PrintBigNumber(Nr1);printf("\n");
@@ -38,6 +48,10 @@ int main(int argc,char **argv)
     FreeMemory(Nr7);
 
     FreeMemoryFloat(NrF1);
+    FreeMemoryFloat(NrF2);
+    FreeMemoryFloat(NrF3);
+    FreeMemoryFloat(NrF4);
+    FreeMemoryFloat(NrF5);
     printf("After Memory Free\n");
     return 0;
 }

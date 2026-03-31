@@ -1,5 +1,9 @@
 #include<stdbool.h>
 
+//First 100 digits of famous constants
+#define pi "3.1415926535897932384626433832795028841971693993751058209749445923078164062862089986280348253421170679"
+#define e  "2.7182818284590452353602874713526624977572470936999595749669676277240766303535475945713821785251664274"
+
 typedef struct{
     char* Digits; //absolute value of the number
     unsigned int NrOfDigits;  //size
@@ -11,6 +15,8 @@ typedef struct{
    int Exponent; 
 }BigFloatNumber;  // BigFloatNumber= significand* 10^Exponent ;Exemple: 123.45= 12345*10^(-2)
 
+BigFloatNumber *FromBigNumber(BigNumber *Number); //Conversion from Int to Float
+
 BigNumber* Init(char* value); //Construct a BigNum from a string
 BigFloatNumber *InitFloat(char *value); //Construct a BigFloatNum from a string
 void FreeMemory(BigNumber *Number);  //Destroys the BigNumber
@@ -21,9 +27,14 @@ BigNumber* Subtract(BigNumber* Number1, BigNumber* Number2); //Number1-Number2
 BigNumber* Multiply(BigNumber* Number1, BigNumber* Number2); //Number1*Number2
 BigFloatNumber *MultiplyFloat(BigFloatNumber* Number1,BigFloatNumber *Number2);
 BigNumber* LongDivision(BigNumber* Dividend, BigNumber* Divisor,BigNumber* Remainder); // Divident/Divizor
+
 BigNumber* FromUnsignedIntegerToBigNum(unsigned int number); 
 BigNumber* FromSignedIntegerToBigNum(int number);
 BigNumber* Factorial(unsigned int Number); //Calculates the factorial of an unsigned integer {(n+1)!=(n+1)*n! ,0!=1}
+
+BigFloatNumber *MultiplyFloat(BigFloatNumber* Number1,BigFloatNumber *Number2); //Number1*Number2
+BigFloatNumber* SumFloat(BigFloatNumber* Number1,BigFloatNumber* Number2); //Number1+Number2
+BigFloatNumber* SubtractFloat(BigFloatNumber* Number1, BigFloatNumber* Number2); //Number1-Number2
 
 bool IsEqual(BigNumber *Number1,BigNumber *Number2); //returns true if there are equal, false otherwise
 int BigNumberCompare(BigNumber* Number1, BigNumber* Number2); //return 1 if Number1>Number2, -1 if Number1<Number2 , 0 if  Number1==Number2
