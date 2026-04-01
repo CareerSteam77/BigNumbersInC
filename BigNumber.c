@@ -245,7 +245,7 @@ void FreeMemoryFloat(BigFloatNumber *Number)
 }
 
 BigNumber* ShiftRightNPositions(BigNumber *Number,unsigned int N) //For multiplication by positive integer powers of 10 and for Long Division
-{
+{  //DOESNT PRODUCE A NEW BIGINT, changes the argument 
    if(N<=0) return Number; //no change needed
 
    char *NewDigits=malloc(sizeof(char)*(Number->NrOfDigits+N+1)); //Prev Digits + positions +'\0'
@@ -619,7 +619,7 @@ BigFloatNumber* SubtractFloat(BigFloatNumber* Number1, BigFloatNumber* Number2)
   return Rezult;
 }
 
-BigNumber* Multiply(BigNumber* Number1, BigNumber* Number2) //O(Size(Number1)+Size(Number2))
+BigNumber* Multiply(BigNumber* Number1, BigNumber* Number2) //O(Size(Number1)*Size(Number2))
 {
   if (Number1 == NULL || Number2 == NULL) return NULL;
 
@@ -720,7 +720,7 @@ BigNumber* FromSignedIntegerToBigNum(int number)
     return PrivateConstructor(Digits,NrOfDigits,IsNegative);
 }
 
-BigNumber* LongDivision(BigNumber* Dividend, BigNumber* Divisor,BigNumber *Remainder)  //Time Complexity O(Divident.size+Divizor.size) ,same as Multiplicity
+BigNumber* LongDivision(BigNumber* Dividend, BigNumber* Divisor,BigNumber *Remainder)  //Time Complexity O(Divident.size * Divizor.size) 
 {
     BigNumber* Zero=Init("0");
 
@@ -788,7 +788,35 @@ BigNumber* LongDivision(BigNumber* Dividend, BigNumber* Divisor,BigNumber *Remai
     
     if(IsDivizorNegative)
       {MultiplyByNegativeOne(Divisor);} //revert back to the original divisor
+    
     return FinalQuotient;
+}
+
+BigFloatNumber *DivizionSetPrecision(BigFloatNumber *Divident,BigFloatNumber *Divizor, unsigned int precision) //Precision means number of decimal digits that the user wants
+{
+    if(Divident==NULL || Divizor==NULL )  //Also consider divizion by 0, in the future suport for +-Infinity could be added
+       return NULL;
+    
+    //We need to normalize the divident to have the exponent equal to the precision
+    //Then Use the Divizion Algorithm for BigINT to calculate the mantissa
+    //Remark : Reminder will be set to NULL
+    
+    long int ShiftNeededInDividentExponent=Divident->Exponent - Divizor->Exponent + precision; //calculate shift for normalization
+    BigNumber *CopyDivident=CloneBigNumber(Divident->Mantissa);  //create a new BIGINT ,DOESNT ALTER DIVIDENT
+    ShiftRightNPositions(CopyDivident,ShiftNeededInDividentExponent); //Normalize it
+
+    BigFloatNumber* Quotient=malloc(sizeof(BigFloatNumber));
+    if(Quotient==NULL)
+      {
+        perror("Allocating memory for QuotientFloat failed");
+        exit(-1);
+      }
+    Quotient->Mantissa=LongDivision(CopyDivident,Divizor->Mantissa,NULL);  //Perform Divizion to calculate Quotient, REMAINDER SET TO NULL
+    Quotient->Exponent=Divident->Exponent - Divizor->Exponent - ShiftNeededInDividentExponent;
+
+    FreeMemory(CopyDivident);
+
+    return Quotient;
 }
 
 BigNumber* Factorial(unsigned int Number)

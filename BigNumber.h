@@ -35,6 +35,7 @@ BigNumber* Factorial(unsigned int Number); //Calculates the factorial of an unsi
 BigFloatNumber *MultiplyFloat(BigFloatNumber* Number1,BigFloatNumber *Number2); //Number1*Number2
 BigFloatNumber* SumFloat(BigFloatNumber* Number1,BigFloatNumber* Number2); //Number1+Number2
 BigFloatNumber* SubtractFloat(BigFloatNumber* Number1, BigFloatNumber* Number2); //Number1-Number2
+BigFloatNumber *DivizionSetPrecision(BigFloatNumber *Divident,BigFloatNumber *Divizor, unsigned int precision); //Number1/Number2 where Precision means number of decimal digits that the user wants
 
 bool IsEqual(BigNumber *Number1,BigNumber *Number2); //returns true if there are equal, false otherwise
 int BigNumberCompare(BigNumber* Number1, BigNumber* Number2); //return 1 if Number1>Number2, -1 if Number1<Number2 , 0 if  Number1==Number2
