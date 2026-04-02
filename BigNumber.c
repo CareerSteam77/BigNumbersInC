@@ -15,6 +15,12 @@ typedef struct{
    long int Exponent; 
 }BigFloatNumber;  // BigFloatNumber= significand* 10^Exponent ;Exemple: 123.45= 12345*10^(-2)
 
+//Using the Compress Function 
+//Exponent < 0: It is a fraction 
+//Exponent == 0: It is an integer ending in 1-9 
+//Exponent > 0: It is an integer ending in 0`s 
+
+
 void CleanTrailingZeros(BigNumber* Number)  //Eliminates Unecesary 0`s from the number
 {
     while (Number->NrOfDigits>1 && (Number->Digits[Number->NrOfDigits - 1] == '0'))
@@ -24,9 +30,57 @@ void CleanTrailingZeros(BigNumber* Number)  //Eliminates Unecesary 0`s from the 
     Number->Digits[Number->NrOfDigits] = '\0';
 }
 
+void CompressFloatInPlace(BigFloatNumber *Number) //Every tail 0 gets removed and added to the exponent thus shortening the Mantissa lenght facilitating faster arithmetic operations
+{
+  //Doesnt produce a new number, change happens in Memory  Time Complexity of O(NrOfDigits)
+    if (Number == NULL || Number->Mantissa == NULL || Number->Mantissa->Digits == NULL) return;
+
+    if (Number->Mantissa->NrOfDigits == 1 && Number->Mantissa->Digits[0] == '0')
+    {
+        Number->Exponent = 0;
+        return;
+    }
+
+    unsigned int CountZeros = 0;
+    while (CountZeros< Number->Mantissa->NrOfDigits && Number->Mantissa->Digits[CountZeros] == '0')
+    {
+        CountZeros++;
+    }
+
+    if (CountZeros==0) return;
+
+    if (CountZeros==Number->Mantissa->NrOfDigits)
+    {
+        Number->Mantissa->Digits[0] = '0';
+        Number->Mantissa->Digits[1] = '\0';
+        Number->Mantissa->NrOfDigits = 1;
+        Number->Mantissa->IsNegative = false;
+        Number->Exponent = 0;
+        return;
+    }
+
+    unsigned int new_nr_digits = Number->Mantissa->NrOfDigits-CountZeros;
+    for (unsigned int i = 0; i < new_nr_digits; i++)
+    {
+        Number->Mantissa->Digits[i] = Number->Mantissa->Digits[i+CountZeros];
+    }
+
+    Number->Mantissa->Digits[new_nr_digits] = '\0';
+    Number->Mantissa->NrOfDigits = new_nr_digits;
+
+    Number->Exponent +=CountZeros;
+}
+
 void SwapNumbersInMemory(BigNumber **Number1,BigNumber **Number2)
 {
    BigNumber *Temporal=*Number1;
+   *Number1=*Number2;
+   *Number2=Temporal;
+}
+
+void SwapNumbersInMemoryFloat(BigFloatNumber **Number1,BigFloatNumber **Number2)
+{
+   BigFloatNumber *Temporal=*Number1;
    *Number1=*Number2;
    *Number2=Temporal;
 }
@@ -177,6 +231,7 @@ BigFloatNumber *InitFloat(char *Value)
     Number->Mantissa=Init(&DigitsSignificand[first_valid_digit]);
     
     free(DigitsSignificand);
+    CompressFloatInPlace(Number);
     return Number;
 }
 
@@ -192,12 +247,55 @@ BigNumber* CloneBigNumber(BigNumber* Original)  //Functions Clones the Original 
     if (Original == NULL) return NULL;
     
     BigNumber* Copy=malloc(sizeof(BigNumber));
+    if(Copy==NULL)
+      {
+        perror("Allocating Memory for CopyINT failed");
+        exit(-1);
+      }
+    
     Copy->NrOfDigits=Original->NrOfDigits;
     Copy->IsNegative=Original->IsNegative;
     
     Copy->Digits=malloc(Original->NrOfDigits + 1);
+    if(Copy->Digits==NULL)
+      {
+        perror("Allocating Memory for Copy->Digits failed");
+        exit(-1);
+      }
     strcpy(Copy->Digits,Original->Digits);
     
+    return Copy;
+}
+
+BigFloatNumber* CloneBigNumberFloat(BigFloatNumber* Original)  //Functions Clones the Original by allocating new memory keeping the old one intact
+{
+    if (Original == NULL) return NULL;
+    
+    BigFloatNumber* Copy=malloc(sizeof(BigFloatNumber));
+    if(Copy==NULL)
+      {
+        perror("Allocating Memory for CopyFLOAT failed");
+        exit(-1);
+      }
+    Copy->Mantissa=malloc(sizeof(BigNumber));
+    if(Copy->Mantissa==NULL)
+     {
+        perror("Allocating Memory for CopyFLOAT->Mantissa failed");
+        exit(-1);
+     }
+    Copy->Mantissa->NrOfDigits=Original->Mantissa->NrOfDigits;  //copy NrOfDigits
+    Copy->Mantissa->IsNegative=Original->Mantissa->IsNegative;  //copy IsNegative
+    
+    Copy->Mantissa->Digits=malloc(Original->Mantissa->NrOfDigits + 1);    // copy the digits
+    if(Copy->Mantissa->Digits==NULL)
+      {
+        perror("Allocating Memory for Copy->Digits->Mantissa failed");
+        exit(-1);
+      }
+    strcpy(Copy->Mantissa->Digits,Original->Mantissa->Digits);
+
+    Copy->Exponent = Original->Exponent;  //copy the exponent
+
     return Copy;
 }
 
@@ -234,6 +332,7 @@ BigFloatNumber *FromBigNumber(BigNumber *Number) //Construct a new Float from Nu
   NumberFloat->Mantissa->NrOfDigits=Number->NrOfDigits;
   NumberFloat->Exponent=0;  
 
+  CompressFloatInPlace(NumberFloat);
   return NumberFloat;
 }
 
@@ -299,7 +398,30 @@ BigFloatNumber *PrivateConstructorFloat(BigNumber* Mantissa,long int Exponent)
     Number->Mantissa=Mantissa;
     Number->Exponent=Exponent;
     
+    CompressFloatInPlace(Number);
     return Number;
+}
+
+bool IsEven(BigNumber *Number) //return true is the number is even by evaluating the first digit
+{
+   if(Number==NULL)
+     return true;
+    
+   char FirstDigit=Number->Digits[0];
+   if(FirstDigit=='0' || FirstDigit=='2'|| FirstDigit=='4' || FirstDigit=='6' || FirstDigit=='8' )
+     return true;
+   else
+     return false;
+}
+
+bool IsOdd(BigNumber *Number) //return true is the number is odd by returning opposite of IsEven
+{
+   return !IsEven(Number);
+}
+
+bool IsNegative(BigNumber *Number) //return true if the number is negative
+{
+   return Number->IsNegative;
 }
 
 bool IsEqual(BigNumber *Number1,BigNumber *Number2)  //returns true if there are equal, false otherwise
@@ -387,7 +509,7 @@ int BigNumberCompare(BigNumber* Number1, BigNumber* Number2)  //return 1 if Numb
   return 0;
 }
 
-void Increment(BigNumber* Number)
+void Increment(BigNumber* Number) // Increments in Memory, Time Complexity of O(1) in AVG ,realloc rarely happens
 {
     int carry = 1;
     unsigned int index = 0;
@@ -408,7 +530,6 @@ void Increment(BigNumber* Number)
         index++;
     }
 
-
     if (carry > 0)
     {
         Number->NrOfDigits++;
@@ -423,6 +544,50 @@ void Increment(BigNumber* Number)
         
         Number->Digits[Number->NrOfDigits - 1] = '1';
         Number->Digits[Number->NrOfDigits] = '\0';
+    }
+}
+
+void RoundFloat(BigFloatNumber *Number, unsigned int MaxPrecision) //Modifies the Number given in the Argument by Rounding to MaxPrecision Digits ,Complexity is O(NrOfDigits)
+{
+    if (Number == NULL || Number->Mantissa == NULL) return;
+
+    long int CurentPrecision=-Number->Exponent;
+
+    if ( (CurentPrecision<=MaxPrecision) || (Number->Exponent >= 0)) // Either the number is an integer or it doesnt have enough digits
+    {
+        return; 
+    }
+
+    unsigned int DigitsToChop =CurentPrecision-MaxPrecision; //  Calculate how many digits we need to chop off from the least significant side
+    if (DigitsToChop >= Number->Mantissa->NrOfDigits)
+    {
+        // Number goes to 0 if we need to chop to many digits
+        Number->Mantissa->Digits[0] = '0';
+        Number->Mantissa->Digits[1] = '\0';
+        Number->Mantissa->NrOfDigits = 1;
+        Number->Mantissa->IsNegative = false;
+        Number->Exponent = -MaxPrecision;
+        return;
+    }
+
+    // Save the highest digit we are about to delete so we can evaluate rounding
+    char RoundingDigit = Number->Mantissa->Digits[DigitsToChop - 1];
+
+    //Shift the remaining digits down to index 0, overwriting the chopped ones
+    unsigned int NewNrOfDigits = Number->Mantissa->NrOfDigits -DigitsToChop;
+    for (unsigned int index = 0; index < NewNrOfDigits; index++)
+    {
+        Number->Mantissa->Digits[index] = Number->Mantissa->Digits[index+DigitsToChop];
+    }
+    
+    //Drop the new null-terminator and update the digits
+    Number->Mantissa->Digits[NewNrOfDigits] = '\0';
+    Number->Mantissa->NrOfDigits = NewNrOfDigits;
+    Number->Exponent = -MaxPrecision;
+
+    if (RoundingDigit >= '5')
+    {
+      Increment(Number->Mantissa);
     }
 }
 
@@ -553,6 +718,7 @@ BigFloatNumber* SumFloat(BigFloatNumber* Number1,BigFloatNumber* Number2)
         RezultSumNumber->Exponent=RezultExponent;
         
         FreeMemory(CloneSecond);
+        CompressFloatInPlace(RezultSumNumber);
         return RezultSumNumber;
       }
      else
@@ -576,6 +742,7 @@ BigFloatNumber* SumFloat(BigFloatNumber* Number1,BigFloatNumber* Number2)
             RezultSumNumber->Exponent=RezultExponent;
         
             FreeMemory(CloneFirst);
+            CompressFloatInPlace(RezultSumNumber);
             return RezultSumNumber;
           }
         else  //Exponents are equal ,NO NORMALIZATION needed
@@ -591,7 +758,8 @@ BigFloatNumber* SumFloat(BigFloatNumber* Number1,BigFloatNumber* Number2)
         
             RezultSumNumber->Mantissa=RezultSumMatissa;
             RezultSumNumber->Exponent=RezultExponent;
-
+            
+            CompressFloatInPlace(RezultSumNumber);
             return RezultSumNumber;
         }
     }
@@ -616,6 +784,7 @@ BigFloatNumber* SubtractFloat(BigFloatNumber* Number1, BigFloatNumber* Number2)
   MultiplyByNegativeOne(Number2->Mantissa); //change the sign of the second`s Mantissa
   BigFloatNumber *Rezult=SumFloat(Number1,Number2);
   MultiplyByNegativeOne(Number2->Mantissa); //reverse the change of sign of the second`s Mantissa
+  CompressFloatInPlace(Rezult);
   return Rezult;
 }
 
@@ -666,6 +835,7 @@ BigFloatNumber* MultiplyFloat(BigFloatNumber *Number1,BigFloatNumber *Number2) /
     BigNumber *Mantissa=Multiply(Number1->Mantissa,Number2->Mantissa);
     long int Exponent=Number1->Exponent+Number2->Exponent;
     BigFloatNumber *Number=PrivateConstructorFloat(Mantissa,Exponent);
+    CompressFloatInPlace(Number);
     return Number;
 }
 
@@ -815,9 +985,158 @@ BigFloatNumber *DivizionSetPrecision(BigFloatNumber *Divident,BigFloatNumber *Di
     Quotient->Exponent=Divident->Exponent - Divizor->Exponent - ShiftNeededInDividentExponent;
 
     FreeMemory(CopyDivident);
-
+    
+    CompressFloatInPlace(Quotient);
     return Quotient;
 }
+
+BigNumber* Power(BigNumber*Number,BigNumber *Power) //Return a new BIGINT equal to Number^Power , if Power is negative return 0, if power is Positive appy Exponentiation by squaring
+{
+    if(Power==NULL || Number==NULL) //Return NULL if any of the arguments are Not Valid
+       return NULL;
+    
+    BigNumber *Zero=Init("0");
+    BigNumber *One=Init("1");
+
+    if(IsEqual(Number,One)==true) //1^a=1 for any integer a
+      {
+         FreeMemory(Zero);
+         return One;
+      }
+
+    if(IsEqual(Power,Zero)==true)  //Any number raised to 0 is 1, We will follow the Real Analysis Convention that 0^0=1
+      {
+        FreeMemory(Zero);
+        return One;
+      }
+
+    if(IsNegative(Power)==true) //Number^(-Power)==1/(Number^Power) and considering Number is a BIGINT ,Result will be 0
+      {
+        BigNumber *Zero=Init("0");  
+        FreeMemory(One);
+        return Zero;
+      }
+    else  //we will implement an iterrative aproach 
+      {
+         BigNumber *Two=Init("2");
+         BigNumber *CopyNumber=CloneBigNumber(Number); //we need to preserve the old values
+         BigNumber *CopyPower =CloneBigNumber(Power);
+         BigNumber *Y=Init("1");
+         while(BigNumberCompare(CopyPower,One)==1)  //while Power>1
+           {
+              if(IsOdd(CopyPower)==true)
+                {  
+                  BigNumber* NewY=Multiply(Y,CopyNumber);
+                  SwapNumbersInMemory(&Y,&NewY);
+                  FreeMemory(NewY);
+                }
+              
+              BigNumber *SquaredNumber=Multiply(CopyNumber,CopyNumber);
+              SwapNumbersInMemory(&SquaredNumber,&CopyNumber);  //x=x^2
+              FreeMemory(SquaredNumber);
+
+              BigNumber *TempPower=LongDivision(CopyPower,Two,NULL);
+              SwapNumbersInMemory(&CopyPower,&TempPower);  //  n=n/2
+              FreeMemory(TempPower);
+           }
+
+         FreeMemory(Zero);
+         FreeMemory(Two);
+         FreeMemory(CopyPower);
+         FreeMemory(One);
+
+         BigNumber *Result=Multiply(Y,CopyNumber);
+         FreeMemory(Y);
+         return(Result);
+      }
+}
+
+BigFloatNumber* PowerFloat(BigFloatNumber *Number,BigFloatNumber *Power,unsigned int precision) // Number^Power where both Number and Power are real numbers, precision dictates the number of digit if power is not a natural number
+{
+   if(Number==NULL ||Power==NULL || Number->Mantissa==NULL || Power->Mantissa==NULL)
+    {
+       return NULL;
+    }
+
+    BigFloatNumber *Zero=InitFloat("0");
+    BigFloatNumber *One=InitFloat("1");
+
+    if(IsEqual(Number->Mantissa,One->Mantissa)==true && Number->Exponent == 0) //1^a=1 for any real number a
+      {
+         FreeMemoryFloat(Zero);
+         return One;
+      }
+
+    if(IsEqual(Power->Mantissa,Zero->Mantissa)==true && Power->Exponent == 0)  //Any real number raised to 0 is 1, We will follow the Real Analysis Convention that 0^0=1
+      {
+        FreeMemoryFloat(Zero);
+        return One;
+      }
+
+    BigFloatNumber* CopyNumber=CloneBigNumberFloat(Number);
+    BigFloatNumber* CopyPower=CloneBigNumberFloat(Power);
+    if(Power->Exponent>=0) //If Power is an integer use Exponentiation by squaring as above with the caveat that if Power is negative do x^-n= (1/x)^n
+      {
+          // Implementation of a GuardBuffer in order to manage the increasing decimal digits induced by the multiplication operation
+          // GuardBuffer wil be used in Exponentiation By Squaring at each itteration of the while loop 
+          unsigned int GuardBuffer= Power->Mantissa->NrOfDigits + 1;  //G= floor(log_10(Power))+ 2= Power->NrOfDigits+1
+          unsigned int InternalPrecision = precision + GuardBuffer;
+
+          ShiftRightNPositions(CopyPower->Mantissa, CopyPower->Exponent);
+          CopyPower->Exponent = 0;
+
+          BigFloatNumber* Y=InitFloat("1");
+          BigFloatNumber* Two=InitFloat("2");
+          if(IsNegative(Power->Mantissa)==true) //x^-n= (1/x)^n
+            {
+              BigFloatNumber *DivideByOne=DivizionSetPrecision(One,Number,InternalPrecision);// Calculate 1/x with InternalPrecision
+              SwapNumbersInMemoryFloat(&DivideByOne,&CopyNumber);
+              FreeMemoryFloat(DivideByOne);
+              MultiplyByNegativeOne(CopyPower->Mantissa);  //Multiply the power by -1
+            }
+          while(BigNumberCompare(CopyPower->Mantissa,One->Mantissa)==1)  //while Power>1
+           {
+              if(IsOdd(CopyPower->Mantissa)==true)
+                {  
+                  BigFloatNumber* NewY=MultiplyFloat(Y,CopyNumber);
+                  SwapNumbersInMemoryFloat(&Y,&NewY);
+                  FreeMemoryFloat(NewY);
+                  RoundFloat(Y,InternalPrecision);   
+                }
+              
+              BigFloatNumber *SquaredNumber=MultiplyFloat(CopyNumber,CopyNumber);
+              SwapNumbersInMemoryFloat(&SquaredNumber,&CopyNumber);  //x=x^2
+              FreeMemoryFloat(SquaredNumber);
+              RoundFloat(CopyNumber,InternalPrecision);
+
+              BigNumber *HalvedMantissa = LongDivision(CopyPower->Mantissa, Two->Mantissa, NULL);
+              SwapNumbersInMemory(&(CopyPower->Mantissa), &HalvedMantissa);
+              FreeMemory(HalvedMantissa);
+           }
+
+         FreeMemoryFloat(Zero);
+         FreeMemoryFloat(Two);
+         FreeMemoryFloat(CopyPower);
+         FreeMemoryFloat(One);
+
+         BigFloatNumber *Result=MultiplyFloat(Y,CopyNumber);
+
+         FreeMemoryFloat(Y);
+         FreeMemoryFloat(CopyNumber);
+         
+         RoundFloat(Result,precision);
+         return(Result);
+      }
+    else
+      {
+        //TO DO: IMPLEMENT EXPONENTIATION WHEN POWER IS IN R\Z
+        FreeMemoryFloat(CopyNumber);
+        FreeMemoryFloat(CopyPower);
+        FreeMemoryFloat(Zero);
+        FreeMemoryFloat(One);
+        return NULL;
+      }
+} 
 
 BigNumber* Factorial(unsigned int Number)
 {
@@ -825,8 +1144,11 @@ BigNumber* Factorial(unsigned int Number)
     unsigned int index=2;
     for(index=2;index<=Number;index++)
       {
-         FactorialRezult=Multiply(FactorialRezult,FromUnsignedIntegerToBigNum(index));
+         BigNumber* TempFactorialRezult=Multiply(FactorialRezult,FromUnsignedIntegerToBigNum(index));
+         SwapNumbersInMemory(&TempFactorialRezult,&FactorialRezult);
+         FreeMemory(TempFactorialRezult);
       }
+    
     return FactorialRezult;
 }
 
