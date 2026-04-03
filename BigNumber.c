@@ -4,6 +4,8 @@
 #include<stdbool.h>
 #include<ctype.h>
 
+#define Karatsuba_BOUND 10 //at how many digits should standard multiplication be used instead of Karatsuba
+
 typedef struct{
     char* Digits;  //Digits are stored in reverse order for easier arithmetic operations
     unsigned int NrOfDigits;  //Numbers can have a max number of digits of 4,294,967,295 (max value of unsigned int)
@@ -343,9 +345,9 @@ void FreeMemoryFloat(BigFloatNumber *Number)
    free(Number);
 }
 
-BigNumber* ShiftRightNPositions(BigNumber *Number,unsigned int N) //For multiplication by positive integer powers of 10 and for Long Division
-{  //DOESNT PRODUCE A NEW BIGINT, changes the argument 
-   if(N<=0) return Number; //no change needed
+void ShiftRightNPositions(BigNumber *Number,unsigned int N) //For multiplication by positive integer powers of 10 and for Long Division
+{  //DOESNT PRODUCE A NEW BIGINT, changes the argument in memory
+   if(N<=0) return; //no change needed
 
    char *NewDigits=malloc(sizeof(char)*(Number->NrOfDigits+N+1)); //Prev Digits + positions +'\0'
    strcpy(NewDigits,Number->Digits);
@@ -362,7 +364,6 @@ BigNumber* ShiftRightNPositions(BigNumber *Number,unsigned int N) //For multipli
    Number->Digits=NewDigits;
    Number->NrOfDigits+=N;  //increment by positions
 
-   return Number;
 }
 
 void MultiplyByNegativeOne(BigNumber *Number)
@@ -704,7 +705,7 @@ BigFloatNumber* SumFloat(BigFloatNumber* Number1,BigFloatNumber* Number2)
         RezultExponent=Number1->Exponent;
         unsigned int shift=Number2->Exponent-Number1->Exponent;
         BigNumber *CloneSecond=CloneBigNumber(Number2->Mantissa);
-        CloneSecond=ShiftRightNPositions(CloneSecond,shift);  //Normalizing the Mantissa
+        ShiftRightNPositions(CloneSecond,shift);  //Normalizing the Mantissa
         
         BigNumber*RezultSumMatissa=Sum(Number1->Mantissa,CloneSecond);
         BigFloatNumber *RezultSumNumber=malloc(sizeof(BigFloatNumber));
@@ -728,7 +729,7 @@ BigFloatNumber* SumFloat(BigFloatNumber* Number1,BigFloatNumber* Number2)
             RezultExponent=Number2->Exponent;
             unsigned int shift=Number1->Exponent-Number2->Exponent;
             BigNumber *CloneFirst=CloneBigNumber(Number1->Mantissa);
-            CloneFirst=ShiftRightNPositions(CloneFirst,shift);  //Normalizing the Mantissa
+            ShiftRightNPositions(CloneFirst,shift);  //Normalizing the Mantissa
         
             BigNumber*RezultSumMatissa=Sum(Number2->Mantissa,CloneFirst);
             BigFloatNumber *RezultSumNumber=malloc(sizeof(BigFloatNumber));
@@ -788,44 +789,202 @@ BigFloatNumber* SubtractFloat(BigFloatNumber* Number1, BigFloatNumber* Number2)
   return Rezult;
 }
 
-BigNumber* Multiply(BigNumber* Number1, BigNumber* Number2) //O(Size(Number1)*Size(Number2))
+BigNumber* StandardMultiply(BigNumber* Number1, BigNumber* Number2) //O(Size(Number1)*Size(Number2))
 {
-  if (Number1 == NULL || Number2 == NULL) return NULL;
-
-    char *RezultProductString=calloc(Number1->NrOfDigits+Number2->NrOfDigits+1,sizeof(char));
     unsigned int MaxPossibleDigits=Number1->NrOfDigits+Number2->NrOfDigits+1;
-    bool IsNegative=false;
-    if(Number1->IsNegative != Number2->IsNegative)
-       IsNegative=true;
+    bool IsNegative = (Number1->IsNegative != Number2->IsNegative);
 
-    unsigned int i=0,j=0,index=0;
+    unsigned int *Accumulator = calloc(MaxPossibleDigits, sizeof(unsigned int));
+    if (Accumulator == NULL)
+     {
+       perror("Alocating Memory For Accumulator inside of StandardMultiply FAILED");
+       exit(-1);
+     }
+
+    unsigned int i=0;unsigned int j=0;
     for(i=0;i<Number1->NrOfDigits;i++)
-      {
-         for(j=0;j<Number2->NrOfDigits;j++)
-           {
-              index=i+j;
-              RezultProductString[index]+=((Number1->Digits[i]-'0') * ((Number2->Digits[j]-'0')));
-              RezultProductString[index+1]+=RezultProductString[index] /10;
-              RezultProductString[index]=RezultProductString[index]%10;
-           }
-      }
+    {
+        unsigned int digit1=Number1->Digits[i]-'0';
+        for(j=0;j<Number2->NrOfDigits;j++)
+        {
+            unsigned int digit2 = Number2->Digits[j]-'0';
+            Accumulator[i+j] += digit1*digit2;
+        }
+    }
     
-    unsigned int NrOfDigits=MaxPossibleDigits;
-    while (NrOfDigits > 1 && RezultProductString[NrOfDigits- 1] == 0) //Removing Trailing 0`s from calloc
+    unsigned int carry = 0; unsigned int current_sum=0;
+    for (i=0;i< MaxPossibleDigits;i++)
+    {
+        current_sum = Accumulator[i] + carry;
+        Accumulator[i] = current_sum % 10;  
+        carry = current_sum / 10; 
+    }
+
+    unsigned int NrOfDigits = MaxPossibleDigits;
+    while (NrOfDigits > 1 && Accumulator[NrOfDigits - 1] == 0) 
     {
         NrOfDigits--;
     }
 
+    char *RezultProductString = malloc(sizeof(char) * (NrOfDigits + 1));
+    if (RezultProductString == NULL)
+    {
+        perror("Allocating Memory For RezultProductString FAILED");
+        free(Accumulator);
+        exit(-1);
+    }
+
     for (i = 0; i < NrOfDigits; i++)
     {
-        RezultProductString[i] += '0'; //Transforming Digits to Characters
+        RezultProductString[i] = Accumulator[i] + '0'; 
     }
 
     RezultProductString[NrOfDigits] = '\0';
-    RezultProductString=realloc(RezultProductString,sizeof(char)*(NrOfDigits+1));
     BigNumber* RezultProduct=PrivateConstructor(RezultProductString,NrOfDigits,IsNegative); 
 
+    free(Accumulator);
     return RezultProduct;
+}
+
+BigNumber* Karatsuba(BigNumber *Number1,BigNumber *Number2)
+{
+    if(Number1->NrOfDigits < Karatsuba_BOUND || Number2 ->NrOfDigits < Karatsuba_BOUND)
+      return StandardMultiply(Number1,Number2);
+ 
+    unsigned int SplitSize=0;
+    unsigned int MaxLen1 = Number1->NrOfDigits;
+    unsigned int MaxLen2 = Number2->NrOfDigits;
+    if(Number1->NrOfDigits>Number2->NrOfDigits)
+        SplitSize=Number1->NrOfDigits/2;
+    else
+        SplitSize=Number2->NrOfDigits/2;
+
+    BigNumber *Low1INT, *High1INT, *Low2INT, *High2INT;
+    if (MaxLen1 > SplitSize) 
+    {
+        unsigned int High1Size = MaxLen1 - SplitSize;
+        
+        char* Low1 = malloc(SplitSize + 1);
+        memcpy(Low1, Number1->Digits, SplitSize);
+        Low1[SplitSize] = '\0';
+        
+        char* High1 = malloc(High1Size + 1);
+        memcpy(High1, Number1->Digits + SplitSize, High1Size);
+        High1[High1Size] = '\0';
+
+        // Transfer ownership of the malloc'd pointers directly to the struct
+        Low1INT = PrivateConstructor(Low1, SplitSize, false);
+        High1INT = PrivateConstructor(High1, High1Size, false);
+    } 
+    else 
+    {
+        // Number is too small for a high half. 
+        char* Low1 = malloc(MaxLen1 + 1);
+        memcpy(Low1, Number1->Digits, MaxLen1 + 1); // Copies the \0 too
+        
+        char* High1 = malloc(2);
+        memcpy(High1, "0", 2); 
+
+        Low1INT = PrivateConstructor(Low1, MaxLen1, false);
+        High1INT = PrivateConstructor(High1, 1, false);
+    }
+
+    // Splitting Number 2
+    if (MaxLen2 > SplitSize) 
+    {
+        unsigned int High2Size = MaxLen2 - SplitSize;
+        
+        char* Low2 = malloc(SplitSize + 1);
+        memcpy(Low2, Number2->Digits, SplitSize);
+        Low2[SplitSize] = '\0';
+        
+        char* High2 = malloc(High2Size + 1);
+        memcpy(High2, Number2->Digits + SplitSize, High2Size);
+        High2[High2Size] = '\0';
+
+        Low2INT = PrivateConstructor(Low2, SplitSize, false);
+        High2INT = PrivateConstructor(High2, High2Size, false);
+    } 
+    else 
+    {
+        char* Low2 = malloc(MaxLen2 + 1);
+        memcpy(Low2, Number2->Digits, MaxLen2 + 1);
+        
+        char* High2 = malloc(2);
+        memcpy(High2, "0", 2);
+
+        Low2INT = PrivateConstructor(Low2, MaxLen2, false);
+        High2INT = PrivateConstructor(High2, 1, false);
+    }
+
+    BigNumber* Z0=Karatsuba(Low1INT,Low2INT);  
+    BigNumber* Z2=Karatsuba(High1INT,High2INT);
+    BigNumber* SumPair1=Sum(Low1INT,High1INT);
+    BigNumber* SumPair2=Sum(Low2INT,High2INT); 
+    BigNumber* Z3=Karatsuba(SumPair1,SumPair2);
+    
+    FreeMemory(Low1INT);FreeMemory(Low2INT);FreeMemory(High1INT);
+    FreeMemory(High2INT);FreeMemory(SumPair1);FreeMemory(SumPair2);
+
+    BigNumber *AuxiliaryDifference=Subtract(Z3,Z2);
+    BigNumber *AuxiliaryDifference2=Subtract(AuxiliaryDifference,Z0);
+    ShiftRightNPositions(AuxiliaryDifference2,SplitSize);
+    FreeMemory(AuxiliaryDifference);
+
+    ShiftRightNPositions(Z2,SplitSize*2);
+    BigNumber *TempRezult=Sum(Z2,AuxiliaryDifference2);
+    BigNumber *Rezult=Sum(TempRezult,Z0);
+
+    FreeMemory(TempRezult);FreeMemory(AuxiliaryDifference2);
+    FreeMemory(Z2);FreeMemory(Z0);FreeMemory(Z3);
+    
+    Rezult->IsNegative = (Number1->IsNegative != Number2->IsNegative);
+    return Rezult;
+}
+
+BigNumber* Multiply(BigNumber* Number1,BigNumber*Number2)
+{
+    if (Number1 == NULL || Number2 == NULL) return NULL;  //Consider Edge Cases such as NULL,Multiply by +-1, 0
+
+    BigNumber *Zero=Init("0");
+    if(IsEqual(Number1,Zero)==true || IsEqual(Number2,Zero))
+      {
+         return Zero;
+      }
+    FreeMemory(Zero);
+
+    BigNumber *One=Init("1");
+    if(IsEqual(Number1,One)==true)
+      {
+        BigNumber *CloneNumber2=CloneBigNumber(Number2);
+        FreeMemory(One);
+        return CloneNumber2;
+      }
+     if(IsEqual(Number2,One)==true)
+      {
+         BigNumber *CloneNumber1=CloneBigNumber(Number1);
+         FreeMemory(One);
+         return CloneNumber1;
+      }
+    FreeMemory(One);
+
+    BigNumber *NegativeOne=Init("-1");
+    if(IsEqual(Number2,NegativeOne)==true)
+      {
+        BigNumber *CloneNumber2=CloneBigNumber(Number2);
+        MultiplyByNegativeOne(CloneNumber2);
+        return CloneNumber2;
+      }
+     if(IsEqual(Number1,NegativeOne)==true)
+      {
+         BigNumber *CloneNumber1=CloneBigNumber(Number1);
+         MultiplyByNegativeOne(CloneNumber1);
+         return CloneNumber1;
+      }
+    FreeMemory(NegativeOne);
+
+    BigNumber *Result=Karatsuba(Number1,Number2);
+    return Result;
 }
 
 BigFloatNumber* MultiplyFloat(BigFloatNumber *Number1,BigFloatNumber *Number2) //Mantissa can be treated as an BigINT than the result its just Multiply(Mantissa1,Mantissa2)*10^(Exponent1+Exponent2)
@@ -915,7 +1074,7 @@ BigNumber* LongDivision(BigNumber* Dividend, BigNumber* Divisor,BigNumber *Remai
 
     for (int i = Dividend->NrOfDigits - 1; i >= 0; i--)
     {
-        CurrentRemainder=ShiftRightNPositions(CurrentRemainder,1);
+        ShiftRightNPositions(CurrentRemainder,1);
         CurrentRemainder->Digits[0]=Dividend->Digits[i];
         CleanTrailingZeros(CurrentRemainder);
         int quotient_digit = 0;
@@ -1144,9 +1303,11 @@ BigNumber* Factorial(unsigned int Number)
     unsigned int index=2;
     for(index=2;index<=Number;index++)
       {
-         BigNumber* TempFactorialRezult=Multiply(FactorialRezult,FromUnsignedIntegerToBigNum(index));
+         BigNumber *Index=FromUnsignedIntegerToBigNum(index);
+         BigNumber* TempFactorialRezult=Multiply(FactorialRezult,Index);
          SwapNumbersInMemory(&TempFactorialRezult,&FactorialRezult);
          FreeMemory(TempFactorialRezult);
+         FreeMemory(Index);
       }
     
     return FactorialRezult;
