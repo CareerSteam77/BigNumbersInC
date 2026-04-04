@@ -1,10 +1,12 @@
+#include<stdint.h>
 #include<stdlib.h>
 #include<stdio.h>
 #include<string.h>
 #include<stdbool.h>
 #include<ctype.h>
+#include<pthread.h>
 
-#define Karatsuba_BOUND 10 //at how many digits should standard multiplication be used instead of Karatsuba
+#define Karatsuba_BOUND 64 //at how many digits should standard multiplication be used instead of Karatsuba
 
 typedef struct{
     char* Digits;  //Digits are stored in reverse order for easier arithmetic operations
@@ -17,8 +19,21 @@ typedef struct{
    long int Exponent; 
 }BigFloatNumber;  // BigFloatNumber= significand* 10^Exponent ;Exemple: 123.45= 12345*10^(-2)
 
+typedef struct {
+    BigNumber *Number1;
+    BigNumber *Number2;
+    BigNumber *Result;
+    unsigned short int Iterations;
+}ThreadArgumentKaratsuba;
+
+typedef struct{
+    BigNumber *Number;
+    BigNumber *Result;
+    unsigned short int Iterations;
+}ThreadArgumentKaratsubaSquared;
+
 //Using the Compress Function 
-//Exponent < 0: It is a fraction 
+//Exponent < 0: It has decimals
 //Exponent == 0: It is an integer ending in 1-9 
 //Exponent > 0: It is an integer ending in 0`s 
 
@@ -789,6 +804,59 @@ BigFloatNumber* SubtractFloat(BigFloatNumber* Number1, BigFloatNumber* Number2)
   return Rezult;
 }
 
+BigNumber* StandardSquare(BigNumber* Number) 
+{
+    if (Number == NULL) return NULL;
+
+    unsigned int MaxPossibleDigits = Number->NrOfDigits * 2; // x^2 has exactly 2N digits maximum
+    
+    bool IsNegative = false; // x^2 is always positive
+
+    unsigned int *Accumulator = calloc(MaxPossibleDigits, sizeof(unsigned int));
+    if (Accumulator == NULL)
+    {
+        perror("Allocating Memory For Accumulator inside of StandardSquare FAILED");
+        exit(-1);
+    }
+
+    for(unsigned int i = 0; i < Number->NrOfDigits; i++)
+    {
+        unsigned int digit_i = Number->Digits[i] - '0';     
+        Accumulator[i + i] += digit_i * digit_i;   
+        for(unsigned int j = i + 1; j < Number->NrOfDigits; j++)
+        {
+            unsigned int digit_j = Number->Digits[j] - '0';
+            Accumulator[i + j] += (digit_i * digit_j) << 1; 
+        }
+    }
+    
+    unsigned int carry = 0, current_sum = 0;
+    for (unsigned int i = 0; i < MaxPossibleDigits; i++)
+    {
+        current_sum = Accumulator[i] + carry;
+        Accumulator[i] = current_sum % 10;  
+        carry = current_sum / 10; 
+    }
+
+    unsigned int NrOfDigits = MaxPossibleDigits;
+    while (NrOfDigits > 1 && Accumulator[NrOfDigits - 1] == 0) 
+    {
+        NrOfDigits--;
+    }
+
+    char *RezultProductString = malloc(sizeof(char) * (NrOfDigits + 1));
+    for (unsigned int i = 0; i < NrOfDigits; i++)
+    {
+        RezultProductString[i] = Accumulator[i] + '0'; 
+    }
+    RezultProductString[NrOfDigits] = '\0';
+    
+    BigNumber* RezultProduct = PrivateConstructor(RezultProductString, NrOfDigits, IsNegative); 
+
+    free(Accumulator);
+    return RezultProduct;
+}
+
 BigNumber* StandardMultiply(BigNumber* Number1, BigNumber* Number2) //O(Size(Number1)*Size(Number2))
 {
     unsigned int MaxPossibleDigits=Number1->NrOfDigits+Number2->NrOfDigits+1;
@@ -942,6 +1010,296 @@ BigNumber* Karatsuba(BigNumber *Number1,BigNumber *Number2)
     return Rezult;
 }
 
+BigNumber* KaratsubaMultiThreaded(BigNumber* Number1, BigNumber* Number2, unsigned short int NumberOfIterations);
+void* KaratsubaTheadFunc(void *argument)
+{
+    ThreadArgumentKaratsuba *args = (ThreadArgumentKaratsuba*)argument;
+    args->Result = KaratsubaMultiThreaded(args->Number1, args->Number2, args->Iterations); 
+    return NULL;
+}
+
+BigNumber* KaratsubaMultiThreaded(BigNumber* Number1,BigNumber*Number2,unsigned short int NumberOfIterations) // For the 0,1,2,3... iterations of Karatsuba spawn for every recursive call a thread to compute Z0,Z1,Z3
+{
+   //We should only spawn at maximum 27 threads per number depending on its size and in the future if the system suport this level of multithreading
+   //NumberOfIterations will assigned in the Multiply function
+    if(Number1->NrOfDigits < Karatsuba_BOUND || Number2 ->NrOfDigits < Karatsuba_BOUND)
+      return StandardMultiply(Number1,Number2);
+ 
+    unsigned int SplitSize=0;
+    unsigned int MaxLen1 = Number1->NrOfDigits;
+    unsigned int MaxLen2 = Number2->NrOfDigits;
+    if(Number1->NrOfDigits>Number2->NrOfDigits)
+        SplitSize=Number1->NrOfDigits/2;
+    else
+        SplitSize=Number2->NrOfDigits/2;
+
+    BigNumber *Low1INT, *High1INT, *Low2INT, *High2INT;
+    if (MaxLen1 > SplitSize) 
+    {
+        unsigned int High1Size = MaxLen1 - SplitSize;
+        
+        char* Low1 = malloc(SplitSize + 1);
+        memcpy(Low1, Number1->Digits, SplitSize);
+        Low1[SplitSize] = '\0';
+        
+        char* High1 = malloc(High1Size + 1);
+        memcpy(High1, Number1->Digits + SplitSize, High1Size);
+        High1[High1Size] = '\0';
+
+        // Transfer ownership of the malloc'd pointers directly to the struct
+        Low1INT = PrivateConstructor(Low1, SplitSize, false);
+        High1INT = PrivateConstructor(High1, High1Size, false);
+    } 
+    else 
+    {
+        // Number is too small for a high half. 
+        char* Low1 = malloc(MaxLen1 + 1);
+        memcpy(Low1, Number1->Digits, MaxLen1 + 1); // Copies the \0 too
+        
+        char* High1 = malloc(2);
+        memcpy(High1, "0", 2); 
+
+        Low1INT = PrivateConstructor(Low1, MaxLen1, false);
+        High1INT = PrivateConstructor(High1, 1, false);
+    }
+
+    // Splitting Number 2
+    if (MaxLen2 > SplitSize) 
+    {
+        unsigned int High2Size = MaxLen2 - SplitSize;
+        
+        char* Low2 = malloc(SplitSize + 1);
+        memcpy(Low2, Number2->Digits, SplitSize);
+        Low2[SplitSize] = '\0';
+        
+        char* High2 = malloc(High2Size + 1);
+        memcpy(High2, Number2->Digits + SplitSize, High2Size);
+        High2[High2Size] = '\0';
+
+        Low2INT = PrivateConstructor(Low2, SplitSize, false);
+        High2INT = PrivateConstructor(High2, High2Size, false);
+    } 
+    else 
+    {
+        char* Low2 = malloc(MaxLen2 + 1);
+        memcpy(Low2, Number2->Digits, MaxLen2 + 1);
+        
+        char* High2 = malloc(2);
+        memcpy(High2, "0", 2);
+
+        Low2INT = PrivateConstructor(Low2, MaxLen2, false);
+        High2INT = PrivateConstructor(High2, 1, false);
+    }
+
+    BigNumber* SumPair1=Sum(Low1INT,High1INT);
+    BigNumber* SumPair2=Sum(Low2INT,High2INT);
+
+    BigNumber *Z0 = NULL, *Z2 = NULL, *Z3 = NULL;
+    if (NumberOfIterations > 0)
+    {
+        pthread_t ThreadZ0, ThreadZ2, ThreadZ3;
+        
+        unsigned short int NextIterations = NumberOfIterations - 1;
+        ThreadArgumentKaratsuba argsZ0 = {Low1INT, Low2INT, NULL, NextIterations};
+        ThreadArgumentKaratsuba argsZ2 = {High1INT, High2INT, NULL, NextIterations};
+        ThreadArgumentKaratsuba argsZ3 = {SumPair1, SumPair2, NULL, NextIterations};
+
+        pthread_create(&ThreadZ0, NULL, KaratsubaTheadFunc, &argsZ0);
+        pthread_create(&ThreadZ2, NULL, KaratsubaTheadFunc, &argsZ2); 
+        pthread_create(&ThreadZ3, NULL, KaratsubaTheadFunc, &argsZ3);
+
+        pthread_join(ThreadZ0, NULL);
+        pthread_join(ThreadZ2, NULL);
+        pthread_join(ThreadZ3, NULL);
+
+        Z0 = argsZ0.Result;
+        Z2 = argsZ2.Result;
+        Z3 = argsZ3.Result;
+    }
+    else
+      {
+        Z0=Karatsuba(Low1INT,Low2INT);  
+        Z2=Karatsuba(High1INT,High2INT);
+        Z3=Karatsuba(SumPair1,SumPair2);
+      }
+    
+    FreeMemory(Low1INT);FreeMemory(Low2INT);FreeMemory(High1INT);
+    FreeMemory(High2INT);FreeMemory(SumPair1);FreeMemory(SumPair2);
+
+    BigNumber *AuxiliaryDifference=Subtract(Z3,Z2);
+    BigNumber *AuxiliaryDifference2=Subtract(AuxiliaryDifference,Z0);
+    ShiftRightNPositions(AuxiliaryDifference2,SplitSize);
+    FreeMemory(AuxiliaryDifference);
+
+    ShiftRightNPositions(Z2,SplitSize*2);
+    BigNumber *TempRezult=Sum(Z2,AuxiliaryDifference2);
+    BigNumber *Rezult=Sum(TempRezult,Z0);
+
+    FreeMemory(TempRezult);FreeMemory(AuxiliaryDifference2);
+    FreeMemory(Z2);FreeMemory(Z0);FreeMemory(Z3);
+    
+    Rezult->IsNegative = (Number1->IsNegative != Number2->IsNegative);
+    return Rezult;
+}
+
+BigNumber* KaratsubaSquared(BigNumber*Number)
+{
+    if(Number->NrOfDigits <Karatsuba_BOUND)  //Base Case for Recursion
+        return StandardSquare(Number);
+
+    unsigned int MaxLen = Number->NrOfDigits;   //Split the number in half
+    unsigned int SplitSize = MaxLen / 2;
+    unsigned int HighSize = MaxLen - SplitSize;
+
+    BigNumber *LowINT, *HighINT;
+    
+    char* Low = malloc(SplitSize + 1);
+    memcpy(Low, Number->Digits, SplitSize);
+    Low[SplitSize] = '\0';
+    
+    char* High = malloc(HighSize + 1);
+    memcpy(High, Number->Digits + SplitSize, HighSize);
+    High[HighSize] = '\0';
+
+    LowINT = PrivateConstructor(Low, SplitSize, false);  //LowINT will take ownership of the string memory
+    HighINT = PrivateConstructor(High, HighSize, false); //HighINT will take ownership of the string memory
+
+    //Number= HighINT*(10^m)+LowINT | ()^2
+    //Number^2 = HighINT^2*(10^2m) +2*HighINT*LowINT*10^m +LowINT^2
+    //Notations  HighINT^2:=Z0 LowINT^2:=Z1 2*HighINT*LowINT:=Z2  (HighINT+LowINT)^2:=Z3
+    //Observe that Z2=Z3-Z1-Z0
+    //Observe that we can all of them are squares besides Z2 so we can make 3 recursive calls to speed up Z0,Z1,Z3
+    //Final Result is Z1*10^2m +Z2*10^m +Z0
+
+    BigNumber* Z0 = KaratsubaSquared(LowINT);  //recursive call
+    BigNumber* Z1 = KaratsubaSquared(HighINT); //recursive call
+
+    BigNumber* Z2 = Sum(LowINT, HighINT);
+    FreeMemory(LowINT);
+    FreeMemory(HighINT);
+   
+    BigNumber* Z3 = KaratsubaSquared(Z2); //recursive call
+
+    BigNumber *AuxiliaryDifference = Subtract(Z3, Z1);
+    BigNumber *AuxiliaryDifference2 = Subtract(AuxiliaryDifference, Z0); //Calculating Z2=Z3-Z1-X0
+    SwapNumbersInMemory(&AuxiliaryDifference2,&Z2);
+    ShiftRightNPositions(Z2, SplitSize);                                 //Calculating Z2*10^m
+
+    FreeMemory(AuxiliaryDifference);
+    FreeMemory(AuxiliaryDifference2);
+
+    ShiftRightNPositions(Z1,SplitSize*2);                               //Calculating Z1*10^2m
+    BigNumber *TempSum=Sum(Z1,Z2);
+    BigNumber *Result=Sum(TempSum,Z0);                                  //Calculating Z1*10^2m + Z2*10^m +Z0  
+
+    FreeMemory(TempSum);
+    FreeMemory(Z0);
+    FreeMemory(Z1);
+    FreeMemory(Z2);
+    FreeMemory(Z3);
+
+    return Result;
+}
+
+BigNumber* KaratsubaSquaredMultiThreaded(BigNumber* Number ,unsigned short int NumberOfIterations);
+void* KaratsubaSquaredTheadFunc(void *argument)
+{
+    ThreadArgumentKaratsubaSquared* args=( ThreadArgumentKaratsubaSquared*)argument;
+    args->Result = KaratsubaSquaredMultiThreaded(args->Number, args->Iterations); 
+    return NULL;
+}
+
+BigNumber*  KaratsubaSquaredMultiThreaded(BigNumber*Number,unsigned short int NumberOfIterations)
+{
+    if(Number->NrOfDigits <Karatsuba_BOUND)  //Base Case for Recursion
+        return StandardSquare(Number);
+
+    //We should only spawn at maximum 27 threads per number depending on its size and in the future if the system suport this level of multithreading
+    //NumberOfIterations will assigned in the Multiply function
+
+    unsigned int MaxLen = Number->NrOfDigits;   //Split the number in half
+    unsigned int SplitSize = MaxLen / 2;
+    unsigned int HighSize = MaxLen - SplitSize;
+
+    BigNumber *LowINT, *HighINT;
+    
+    char* Low = malloc(SplitSize + 1);
+    memcpy(Low, Number->Digits, SplitSize);
+    Low[SplitSize] = '\0';
+    
+    char* High = malloc(HighSize + 1);
+    memcpy(High, Number->Digits + SplitSize, HighSize);
+    High[HighSize] = '\0';
+
+    LowINT = PrivateConstructor(Low, SplitSize, false);  //LowINT will take ownership of the string memory
+    HighINT = PrivateConstructor(High, HighSize, false); //HighINT will take ownership of the string memory
+
+    //Number= HighINT*(10^m)+LowINT | ()^2
+    //Number^2 = HighINT^2*(10^2m) +2*HighINT*LowINT*10^m +LowINT^2
+    //Notations  HighINT^2:=Z0 LowINT^2:=Z1 2*HighINT*LowINT:=Z2  (HighINT+LowINT)^2:=Z3
+    //Observe that Z2=Z3-Z1-Z0
+    //Observe that we can all of them are squares besides Z2 so we can make 3 recursive calls to speed up Z0,Z1,Z3
+    //Final Result is Z1*10^2m +Z2*10^m +Z0
+
+    BigNumber* Z2 = Sum(LowINT, HighINT);
+
+    BigNumber* Z0; BigNumber* Z1 ;BigNumber* Z3;
+    if(NumberOfIterations>0)
+      {
+        //For every recursive call a thread will be created
+        //To maintain a number of threads close to the hardware limit the NumberOfIterations should be between 1 and 3 
+        //Number of threads in total is 3^(NumberOfIterations)
+
+        pthread_t ThreadZ0, ThreadZ1, ThreadZ3;
+        
+        unsigned short int NextIterations = NumberOfIterations - 1;
+        ThreadArgumentKaratsubaSquared argsZ0 = {LowINT, NULL, NextIterations};
+        ThreadArgumentKaratsubaSquared argsZ1 = {HighINT, NULL, NextIterations};
+        ThreadArgumentKaratsubaSquared argsZ3 = {Z2, NULL, NextIterations};
+
+        pthread_create(&ThreadZ0, NULL, KaratsubaSquaredTheadFunc, &argsZ0);
+        pthread_create(&ThreadZ1, NULL, KaratsubaSquaredTheadFunc, &argsZ1); 
+        pthread_create(&ThreadZ3, NULL, KaratsubaSquaredTheadFunc, &argsZ3);
+
+        pthread_join(ThreadZ0, NULL);
+        pthread_join(ThreadZ1, NULL);
+        pthread_join(ThreadZ3, NULL);
+
+        Z0 = argsZ0.Result;
+        Z1 = argsZ1.Result;
+        Z3 = argsZ3.Result;
+      }
+    else
+      {
+        Z0 = KaratsubaSquared(LowINT);  //recursive call
+        Z1 = KaratsubaSquared(HighINT); //recursive call
+        Z3 = KaratsubaSquared(Z2);      //recursive call
+      }
+
+    FreeMemory(LowINT);
+    FreeMemory(HighINT);
+
+    BigNumber *AuxiliaryDifference = Subtract(Z3, Z1);
+    BigNumber *AuxiliaryDifference2 = Subtract(AuxiliaryDifference, Z0); //Calculating Z2=Z3-Z1-X0
+    SwapNumbersInMemory(&AuxiliaryDifference2,&Z2);
+    ShiftRightNPositions(Z2, SplitSize);                                 //Calculating Z2*10^m
+
+    FreeMemory(AuxiliaryDifference);
+    FreeMemory(AuxiliaryDifference2);
+
+    ShiftRightNPositions(Z1,SplitSize*2);                               //Calculating Z1*10^2m
+    BigNumber *TempSum=Sum(Z1,Z2);
+    BigNumber *Result=Sum(TempSum,Z0);                                  //Calculating Z1*10^2m + Z2*10^m +Z0  
+
+    FreeMemory(TempSum);
+    FreeMemory(Z0);
+    FreeMemory(Z1);
+    FreeMemory(Z2);
+    FreeMemory(Z3);
+
+    return Result;
+}
+
 BigNumber* Multiply(BigNumber* Number1,BigNumber*Number2)
 {
     if (Number1 == NULL || Number2 == NULL) return NULL;  //Consider Edge Cases such as NULL,Multiply by +-1, 0
@@ -960,7 +1318,7 @@ BigNumber* Multiply(BigNumber* Number1,BigNumber*Number2)
         FreeMemory(One);
         return CloneNumber2;
       }
-     if(IsEqual(Number2,One)==true)
+    if(IsEqual(Number2,One)==true)
       {
          BigNumber *CloneNumber1=CloneBigNumber(Number1);
          FreeMemory(One);
@@ -975,7 +1333,7 @@ BigNumber* Multiply(BigNumber* Number1,BigNumber*Number2)
         MultiplyByNegativeOne(CloneNumber2);
         return CloneNumber2;
       }
-     if(IsEqual(Number1,NegativeOne)==true)
+    if(IsEqual(Number1,NegativeOne)==true)
       {
          BigNumber *CloneNumber1=CloneBigNumber(Number1);
          MultiplyByNegativeOne(CloneNumber1);
@@ -983,7 +1341,13 @@ BigNumber* Multiply(BigNumber* Number1,BigNumber*Number2)
       }
     FreeMemory(NegativeOne);
 
-    BigNumber *Result=Karatsuba(Number1,Number2);
+    if(IsEqual(Number1,Number2)==true)
+      {
+          BigNumber *Result=KaratsubaSquaredMultiThreaded(Number1,3);
+          return Result;
+      }
+
+    BigNumber *Result=KaratsubaMultiThreaded(Number1,Number2,3);
     return Result;
 }
 
@@ -998,55 +1362,205 @@ BigFloatNumber* MultiplyFloat(BigFloatNumber *Number1,BigFloatNumber *Number2) /
     return Number;
 }
 
-BigNumber* FromUnsignedIntegerToBigNum(unsigned int number)
+BigNumber* FromUnsignedIntegerToBigNum(unsigned int Number)
 {
-    //4,294,967,295 (max value of unsigned int) -10 digits needed +'\0'
-    char* Digits=malloc(sizeof(char)*11);
-    short int digit=0;
-    short int NrOfDigits=0;
-    if (number == 0) 
+    if (Number== 0) 
     {
-      char* Digits=malloc(sizeof(char)*2);
-      Digits[0]='0'; Digits[1]='\0';
-      return PrivateConstructor(Digits, 1, false);
+        char* Digits = malloc(sizeof(char)*2);
+        Digits[0] = '0'; Digits[1] = '\0';
+        return PrivateConstructor(Digits, 1, false);
     }
-    while(number>0)  //construcs number in reverse order directly
+
+    //MAX VALUE OF UNSIGNED INT 4,294,967,295 - 10 digits + '\0' = 11 bytes
+    char* Digits = malloc(sizeof(char)*11);
+    short int NrOfDigits = 0;
+    if(Digits==NULL)
       {
-        digit=number%10;
-        Digits[NrOfDigits]=digit+'0';
-        number/=10;
-        NrOfDigits++;
+        perror("Allocating memory for Digits in FromUnsignedIntegerToBigNum failed");
+        exit(-1);
       }
+
+    while(Number> 0) 
+    {
+        Digits[NrOfDigits] = (Number% 10) + '0';
+        Number /= 10;
+        NrOfDigits++;
+    }
     
-    Digits[NrOfDigits]='\0';
-    return PrivateConstructor(Digits,NrOfDigits,false);
+    Digits[NrOfDigits] = '\0';
+    
+    // Unsigned is ALWAYS positive (false)
+    return PrivateConstructor(Digits, NrOfDigits, false); 
 }
 
-BigNumber* FromSignedIntegerToBigNum(int number)
+BigNumber* FromUnsignedLongLongToBigNum(unsigned long long int Number)
 {
-    //2,147,483,648 (min value of unsigned int) -10 digits needed +'\0'
-    char* Digits=malloc(sizeof(char)*11);
-    short int digit=0;
-    short int NrOfDigits=0;
-    if (number==0) 
+    if (Number==0) 
     {
-      char* Digits=malloc(sizeof(char)*2);
-      Digits[0]='0'; Digits[1]='\0';
-      return PrivateConstructor(Digits, 1, false);
+        char* Digits = malloc(sizeof(char)*2);
+        Digits[0] = '0'; Digits[1] = '\0';
+        return PrivateConstructor(Digits, 1, false);
     }
-    bool IsNegative=GetIsNegativeFromAnInt(number);
-    if(IsNegative)
-      number=number*(-1);
-    while(number>0)  //construct number in reverse order directly
+
+    //MAX VALUE OF unsigned long long int 18,446,744,073,709,551,615 - 20 digits + '\0' = 21 bytes
+    char* Digits = malloc(sizeof(char)*21);
+    if(Digits==NULL)
       {
-        digit=number%10;
-        Digits[NrOfDigits]=digit+'0';
-        number/=10;
+        perror("Allocating memory for Digits in FromUnsignedLongLongToBigNum failed");
+        exit(-1);
+      }
+    short int NrOfDigits = 0;
+    
+    while(Number>0) 
+    {
+        Digits[NrOfDigits] = (Number% 10) + '0';
+        Number/= 10;
         NrOfDigits++;
+    }
+    
+    Digits[NrOfDigits] = '\0';
+    return PrivateConstructor(Digits, NrOfDigits, false); 
+}
+
+BigNumber* FromUnsignedInt128ToBigNum(__uint128_t Number)
+{
+    if (Number==0) 
+    {
+        char* Digits = malloc(sizeof(char)*2);
+        Digits[0] = '0'; Digits[1] = '\0';
+        return PrivateConstructor(Digits, 1, false);
+    }
+
+    // MAX VALUE OF UINT128 340,282,366,920,938,463,463,374,607,431,768,211,455 - 39 digits + '\0' = 40 bytes
+    char* Digits = malloc(sizeof(char)*40);
+    short int NrOfDigits = 0;
+    if(Digits==NULL)
+      {
+        perror("Allocating memory for Digits in FromUnsignedInt128ToBigNum failed");
+        exit(-1);
       }
     
-    Digits[NrOfDigits]='\0';
-    return PrivateConstructor(Digits,NrOfDigits,IsNegative);
+    while(Number>0) 
+    {
+        Digits[NrOfDigits] = (char)(Number% 10) + '0'; 
+        Number/= 10;
+        NrOfDigits++;
+    }
+    
+    Digits[NrOfDigits] = '\0';
+    return PrivateConstructor(Digits, NrOfDigits, false);  
+}
+
+BigNumber* FromSignedIntegerToBigNum(int Number)
+{
+    if (Number==0) 
+    {
+        char* Digits = malloc(sizeof(char)*2);
+        Digits[0] = '0'; Digits[1] = '\0';
+        return PrivateConstructor(Digits, 1, false);
+    }
+
+    bool IsNegative = (Number<0);
+    
+    // Cast to unsigned FIRST to prevent INT_MIN overflow crash!
+    unsigned int AbsoluteValueNumber= IsNegative ? (unsigned int)(-(Number)) : (unsigned int)Number;
+
+    // MAX VALUE OF INT -2,147,483,648 - 10 digits + '\0' = 11 bytes
+    char* Digits = malloc(sizeof(char)*11);
+    short int NrOfDigits = 0;
+    if(Digits==NULL)
+      {
+        perror("Allocating memory for Digits in FromSignedIntegerToBigNum failed");
+        exit(-1);
+      }
+    
+    while(AbsoluteValueNumber> 0) 
+    {
+        Digits[NrOfDigits] = (AbsoluteValueNumber% 10) + '0';
+        AbsoluteValueNumber/= 10;
+        NrOfDigits++;
+    }
+    
+    Digits[NrOfDigits] = '\0';
+    return PrivateConstructor(Digits, NrOfDigits, IsNegative);
+}
+
+void MultiplyBy2(BigNumber* Number) //Modifies the NUMBER in MEMORY, DOENST RETURN A NEW ONE
+{
+    if (Number == NULL || Number->NrOfDigits == 0) return;
+
+    //An O(NrOfDigits) algoritm to quickly find Number*2 in memory without any Auxiliary Memory and No Garbage Collection
+    //Very Usefull in Newton-Raphson iterations for Inverse
+
+    unsigned int carry = 0;
+    for (unsigned int i = 0; i < Number->NrOfDigits; i++)
+    {
+        unsigned int current_digit = Number->Digits[i] - '0';
+        unsigned int doubled = (current_digit << 1) + carry; // digit * 2 + carry
+        
+        Number->Digits[i] = (doubled % 10) + '0';
+        carry = doubled / 10;
+    }
+
+    if (carry > 0)
+    {
+        Number->NrOfDigits++;
+        Number->Digits = realloc(Number->Digits, Number->NrOfDigits + 1);
+        if (Number->Digits == NULL)
+        {
+            perror("Memory reallocation failed in MultiplyBy2");
+            exit(-1);
+        }
+        Number->Digits[Number->NrOfDigits - 1] = carry + '0';
+        Number->Digits[Number->NrOfDigits] = '\0';
+    }
+}
+
+void DivizionBy2(BigNumber *Number) //Modifies the NUMBER in MEMORY, DOENST RETURN A NEW ONE
+{
+    //An O(NrOfDigits) algoritm to quickly find Number/2 in memory without any Auxiliary Memory and No Garbage Collection
+    //Very Usefull in Newton-Raphson iterations for Square Root and for Exponentiation by Squaring
+
+    if(Number==NULL) return ;
+
+    // (current_digit & 1 return the parity)  current_digit >> 1 returns curent_digit/2
+    //If the digit is an even number the next carry is 5 else the carry is 0 
+
+    unsigned int carry = 0;
+    for (int i = (int)Number->NrOfDigits - 1; i >= 0; i--)  //number is stored in reverse in memory
+    {
+        unsigned int current_digit = Number->Digits[i] - '0';
+        unsigned int new_digit = (current_digit >> 1) + (carry * 5);  //curent_digit/2 + (5 or 0) depending on parity
+        carry = current_digit & 1; 
+        Number->Digits[i] = new_digit + '0';
+    }
+
+    // Clean up any leading zero created by the division  (exemple 12/6 produces 06)
+    if (Number->NrOfDigits > 1 && Number->Digits[Number->NrOfDigits - 1] == '0')
+    {
+        Number->NrOfDigits--;
+        Number->Digits[Number->NrOfDigits] = '\0';
+    }
+
+}
+
+void DivizionBy2Float(BigFloatNumber* Number)
+{
+    if (Number == NULL || Number->Mantissa == NULL) return;
+
+    // If the mantissa is odd, integer division by 2 would lose the .5
+    // We prevent this by shifting the mantissa * 10 and decrementing the exponent!
+    if (IsOdd(Number->Mantissa))
+    {
+        ShiftRightNPositions(Number->Mantissa, 1); // Fast O(N) memory shift
+        Number->Exponent -= 1; 
+    }
+
+    // Now it is guaranteed to be an even integer, so we safely apply the O(N) bit-shift!
+    DivizionBy2(Number->Mantissa);
+    
+    // Clean up any trailing zeros we might have created
+    CompressFloatInPlace(Number);
 }
 
 BigNumber* LongDivision(BigNumber* Dividend, BigNumber* Divisor,BigNumber *Remainder)  //Time Complexity O(Divident.size * Divizor.size) 
@@ -1067,7 +1581,7 @@ BigNumber* LongDivision(BigNumber* Dividend, BigNumber* Divisor,BigNumber *Remai
     
     bool IsDivizorNegative=Divisor->IsNegative;
     if(IsDivizorNegative)
-      {MultiplyByNegativeOne(Divisor);} //If it is not turned into a pozitive ,Long Division diverges to +inf
+      MultiplyByNegativeOne(Divisor); //If it is not turned into a pozitive ,Long Division diverges to +inf
       
     char* QuotientString = calloc(Dividend->NrOfDigits + 1, sizeof(char));
     BigNumber* CurrentRemainder = Init("0");
@@ -1119,6 +1633,250 @@ BigNumber* LongDivision(BigNumber* Dividend, BigNumber* Divisor,BigNumber *Remai
       {MultiplyByNegativeOne(Divisor);} //revert back to the original divisor
     
     return FinalQuotient;
+}
+
+BigFloatNumber* InverseInitialGuess(BigFloatNumber* Divisor)
+{
+    unsigned int len = Divisor->Mantissa->NrOfDigits;
+    BigNumber* GuessMantissa = NULL;
+    long int GuessExponent = 0;
+    long int OriginalMagnitude = (long int)len - 1 + Divisor->Exponent;
+
+// ==============================================================================
+// 128-BIT ARCHITECTURE SUPPORT
+// ==============================================================================
+#if defined(__SIZEOF_INT128__)
+    
+    unsigned int DigitsToExtract = (len > 18) ? 18 : len; 
+    __uint128_t TopDigits = 0;
+    for (unsigned int i = 0; i < DigitsToExtract; i++) {
+        TopDigits = TopDigits * 10 + (Divisor->Mantissa->Digits[len - 1 - i] - '0');
+    }
+
+    __uint128_t MassiveNumerator = ((__uint128_t)1000000000000000000ULL) * 1000000000000000000ULL; // 10^36
+    __uint128_t InverseInt = MassiveNumerator / TopDigits;
+    
+    GuessMantissa = FromUnsignedInt128ToBigNum(InverseInt); 
+    GuessExponent = -OriginalMagnitude + DigitsToExtract - 37; // Perfect 128-bit scaling
+
+// ==============================================================================
+// 64-BIT ARCHITECTURE
+// ==============================================================================
+#elif UINTPTR_MAX == 0xffffffffffffffff || defined(_WIN64) || defined(__x86_64__) || defined(__aarch64__)
+    
+    unsigned int DigitsToExtract = (len > 9) ? 9 : len; 
+    unsigned long long TopDigits = 0;
+    for (unsigned int i = 0; i < DigitsToExtract; i++) {
+        TopDigits = TopDigits * 10 + (Divisor->Mantissa->Digits[len - 1 - i] - '0');
+    }
+
+    unsigned long long MassiveNumerator = 1000000000000000000ULL; // 10^18
+    unsigned long long InverseInt = MassiveNumerator / TopDigits;
+    
+    GuessMantissa = FromUnsignedLongLongToBigNum(InverseInt); 
+    GuessExponent = -OriginalMagnitude + DigitsToExtract - 19; // Perfect 64-bit scaling
+
+// ==============================================================================
+// 32-BIT ARCHITECTURE
+// ==============================================================================
+#else
+
+    unsigned int DigitsToExtract = (len > 4) ? 4 : len; 
+    unsigned int TopDigits = 0;
+    for (unsigned int i = 0; i < DigitsToExtract; i++) {
+        TopDigits = TopDigits * 10 + (Divisor->Mantissa->Digits[len - 1 - i] - '0');
+    }
+
+    unsigned int MassiveNumerator = 100000000; // 10^8
+    unsigned int InverseInt = MassiveNumerator / TopDigits;
+    
+    GuessMantissa = FromUnsignedIntegerToBigNum(InverseInt);
+    GuessExponent = -OriginalMagnitude + DigitsToExtract - 9; // Perfect 32-bit scaling
+
+#endif
+// ==============================================================================
+
+    GuessMantissa->IsNegative = Divisor->Mantissa->IsNegative;
+    return PrivateConstructorFloat(GuessMantissa, GuessExponent);
+}
+
+BigFloatNumber* Inverse(BigFloatNumber *Number,unsigned int precision)
+{
+    //Finding 1/Number with set presion(Number of Decimals) using Newton Raphson and our above InitialGuess
+    if(Number == NULL) return NULL;
+
+    BigFloatNumber* Zero=InitFloat("0");
+    if(IsEqual(Number->Mantissa,Zero->Mantissa)==true)
+      {
+         printf("Divizion by 0 encountered ,returning NULL");
+         FreeMemoryFloat(Zero);
+         return NULL;
+      }
+    FreeMemoryFloat(Zero);
+    
+    //By Newton Raphson method we get the following quadratic convergence sequence for a good enough initial guess
+    // X_0=ReciprocalInitialGuess(Number) 
+    // X_(N+1)=X_N*2-Number*X_N^2 
+    // lim X_N = 1/Number
+    //DEPENDING ON THE ARHITECTURE OF THE SYSTEM THE INITIAL GUESS HAS ALREADY 4(32bit),9(64bit),18(uint128 suport) CORRECT DECIMALS
+    //Number of Iterations needed also depend on arhitecture as with each itteration the number of correct digits double
+    
+    unsigned int InternalPrecision=precision+3;
+    unsigned int CurrentPrecision=4; //ON 32BIT
+    #if defined(__SIZEOF_INT128__)  
+      CurrentPrecision =18;          //ON 128BIT SUPPORT
+    #elif UINTPTR_MAX == 0xffffffffffffffff || defined(_WIN64) || defined(__x86_64__) || defined(__aarch64__)  
+      CurrentPrecision =9;          //ON 64BIT 
+    #endif
+
+    BigFloatNumber* XN=InverseInitialGuess(Number); //if precision is low, hardware division migh be enough
+    if(CurrentPrecision>InternalPrecision)
+       {
+          RoundFloat(XN,precision);
+          return XN;
+       }
+      
+    while(CurrentPrecision<InternalPrecision)
+      {
+        //XN*XN
+        BigFloatNumber* XNSquared=MultiplyFloat(XN,XN);
+        RoundFloat(XNSquared,InternalPrecision);
+
+        //Number*XN^2
+        BigFloatNumber* NumberTimesXNSquared=MultiplyFloat(XNSquared,Number);
+        RoundFloat(NumberTimesXNSquared,InternalPrecision);
+
+        MultiplyBy2(XN->Mantissa);
+
+        //2XN-Number*XN^2
+        BigFloatNumber* NEXTXN=SubtractFloat(XN,NumberTimesXNSquared);
+        CurrentPrecision*=2;
+
+        FreeMemoryFloat(XN);
+        XN=NEXTXN; //Assign OLD XN to NEW XN
+
+        FreeMemoryFloat(NumberTimesXNSquared);
+        FreeMemoryFloat(XNSquared);
+      }
+
+    RoundFloat(XN,precision);
+    return XN;
+}
+
+BigNumber *Floor(BigFloatNumber *NumberFloat)
+{
+    BigNumber* NumberInt = CloneBigNumber(NumberFloat->Mantissa);
+    if (NumberFloat->Exponent > 0) 
+    {
+        // It's a compressed integer (e.g. 5 * 10^2) so we are addign the 0`s back
+        ShiftRightNPositions(NumberInt, NumberFloat->Exponent);
+    } 
+    else if (NumberFloat->Exponent < 0) 
+    {
+        // It has decimals. We TRUNCATE the decimals to simulate Floor()
+        long int digits_to_chop = -(NumberFloat->Exponent);
+        
+        if (digits_to_chop >= NumberInt->NrOfDigits) 
+        {
+            // The number is 0.something
+            NumberInt->Digits[0] = '0';
+            NumberInt->Digits[1] = '\0';
+            NumberInt->NrOfDigits = 1;
+        } 
+        else 
+        {
+            // Shift the integer digits down to index 0, overwriting the decimals
+            unsigned int new_len = NumberInt->NrOfDigits - digits_to_chop;
+            for (unsigned int i = 0; i < new_len; i++) 
+            {
+                NumberInt->Digits[i] = NumberInt->Digits[i + digits_to_chop];
+            }
+            NumberInt->Digits[new_len] = '\0';
+            NumberInt->NrOfDigits = new_len;
+        }
+    }
+  
+    return NumberInt;
+}
+
+BigNumber* Modulo(BigNumber * Dividend, BigNumber *Modulus)  // Divident mod Modulus Complexity O(N^1.58) Avg and O(1) when Modulus =0,1,2 and Dividend<Modulus
+{
+  // We calcute the Modulo by Divident mod Modulus:= Dividend -Modulus*Floor(Dividend/Modulus)  and finding Dividend/Modulus using Newton`s method
+    if(Dividend==NULL || Modulus==NULL) return NULL;
+    
+    BigNumber *Zero=Init("0");
+    if(IsEqual(Modulus,Zero)==true) // Undefined for a mod 0
+      {
+        FreeMemory(Zero);
+        return NULL;
+      }
+
+    if(IsEqual(Dividend,Zero)==true && IsEqual(Modulus,Zero)==false)  // For any b>0 0 (mod b) =0
+      {
+        return Zero;
+      }
+    
+    BigNumber* One=Init("1");
+    BigNumber* Two=Init("2");
+    if(IsEqual(Modulus,Two)==true)    //Considering a mod 2 as an edge case that can be found in O(1)
+      {
+        FreeMemory(Two);
+        if(IsOdd(Dividend)==true)
+           {
+              FreeMemory(Zero);
+              return One;
+           }
+        else
+           {
+              FreeMemory(One);
+              return Zero;
+           }
+      }
+    FreeMemory(Two);
+    FreeMemory(One);
+    FreeMemory(Zero);
+    
+    // If Dividend < Modulus, Dividend mod Modulus = Dividend
+    if (BigNumberCompareAbsoluteValue(Dividend, Modulus) == -1)
+    {
+        return CloneBigNumber(Dividend);
+    }
+
+    unsigned int RequiredPrecision = Dividend->NrOfDigits + 5; //Guard Digits to increase accuracy for Newton`s Method and reduce the need for Correction Steps
+
+    BigFloatNumber *DividendFloat=FromBigNumber(Dividend);                    // Converting Divident into BigFloat
+    BigFloatNumber *ModulusFloat=FromBigNumber(Modulus);                      // Converting Modulus into BigFloat
+    BigFloatNumber *InverseModulus=Inverse(ModulusFloat,RequiredPrecision);   // 1/Modulus
+    BigFloatNumber *Quotient=MultiplyFloat(DividendFloat,InverseModulus);     // Dividend/Modulus
+    BigNumber      *FloorQuotient=Floor(Quotient);                            // Floor(Divident/Modulus)
+    BigNumber      *TempMultiply=Multiply(FloorQuotient,Modulus);             // Modulus*Floor(Dividend/Modulus)
+    BigNumber      *Result=Subtract(Dividend,TempMultiply);                   // Dividend -Modulus*Floor(Dividend/Modulus)
+    
+    while (Result->IsNegative == true)
+    {
+        BigNumber* Corrected = Sum(Result, Modulus);
+        FreeMemory(Result);
+        Result = Corrected;
+    }
+
+    // Corrects the off-by-one truncation errors inherent to floating-point math.
+    // If Quotient was 1 too large (Remainder went into the negatives)
+    // If Quotient was 1 too small (Remainder is >= Modulus)
+    while (BigNumberCompareAbsoluteValue(Result, Modulus) >= 0)
+    {
+        BigNumber* Corrected = Subtract(Result, Modulus);
+        FreeMemory(Result);
+        Result = Corrected;
+    }
+
+    FreeMemoryFloat(DividendFloat);
+    FreeMemoryFloat(ModulusFloat);
+    FreeMemoryFloat(Quotient);
+    FreeMemoryFloat(InverseModulus);
+    FreeMemory(TempMultiply);
+    FreeMemory(FloorQuotient);
+
+    return Result;
 }
 
 BigFloatNumber *DivizionSetPrecision(BigFloatNumber *Divident,BigFloatNumber *Divizor, unsigned int precision) //Precision means number of decimal digits that the user wants
@@ -1190,13 +1948,11 @@ BigNumber* Power(BigNumber*Number,BigNumber *Power) //Return a new BIGINT equal 
                   FreeMemory(NewY);
                 }
               
-              BigNumber *SquaredNumber=Multiply(CopyNumber,CopyNumber);
+              BigNumber *SquaredNumber=StandardSquare(CopyNumber);
               SwapNumbersInMemory(&SquaredNumber,&CopyNumber);  //x=x^2
               FreeMemory(SquaredNumber);
 
-              BigNumber *TempPower=LongDivision(CopyPower,Two,NULL);
-              SwapNumbersInMemory(&CopyPower,&TempPower);  //  n=n/2
-              FreeMemory(TempPower);
+              DivizionBy2(CopyPower); //CopyPower=CopyPower/2
            }
 
          FreeMemory(Zero);
@@ -1245,7 +2001,6 @@ BigFloatNumber* PowerFloat(BigFloatNumber *Number,BigFloatNumber *Power,unsigned
           CopyPower->Exponent = 0;
 
           BigFloatNumber* Y=InitFloat("1");
-          BigFloatNumber* Two=InitFloat("2");
           if(IsNegative(Power->Mantissa)==true) //x^-n= (1/x)^n
             {
               BigFloatNumber *DivideByOne=DivizionSetPrecision(One,Number,InternalPrecision);// Calculate 1/x with InternalPrecision
@@ -1268,13 +2023,10 @@ BigFloatNumber* PowerFloat(BigFloatNumber *Number,BigFloatNumber *Power,unsigned
               FreeMemoryFloat(SquaredNumber);
               RoundFloat(CopyNumber,InternalPrecision);
 
-              BigNumber *HalvedMantissa = LongDivision(CopyPower->Mantissa, Two->Mantissa, NULL);
-              SwapNumbersInMemory(&(CopyPower->Mantissa), &HalvedMantissa);
-              FreeMemory(HalvedMantissa);
+              DivizionBy2(CopyPower->Mantissa); // n=n/2
            }
 
          FreeMemoryFloat(Zero);
-         FreeMemoryFloat(Two);
          FreeMemoryFloat(CopyPower);
          FreeMemoryFloat(One);
 
@@ -1311,6 +2063,188 @@ BigNumber* Factorial(unsigned int Number)
       }
     
     return FactorialRezult;
+}
+
+BigFloatNumber* SquareRootInitialGuess(BigFloatNumber* Number)
+{
+    if (Number == NULL || Number->Mantissa == NULL) return NULL;
+    if (Number->Mantissa->IsNegative) 
+    {
+        perror("Mathematical Error: Cannot calculate square root of a negative number!");
+        return NULL;
+    }
+
+    // 1. Calculate the true mathematical base-10 magnitude
+    long int E_total = (long int)Number->Mantissa->NrOfDigits - 1 + Number->Exponent;
+    
+    // 2. Safely handle integer division for negative numbers to mimic mathematical floor()
+    long int E_root;
+    bool is_odd = (E_total % 2 != 0);
+
+    if (E_total >= 0) 
+    {
+        E_root = E_total / 2;
+    } 
+    else 
+    {
+        if (is_odd) E_root = (E_total - 1) / 2;
+        else        E_root = E_total / 2;
+    }
+
+    // 3. Extract the top 1 or 2 digits based on parity
+    unsigned int TopDigits = Number->Mantissa->Digits[Number->Mantissa->NrOfDigits - 1] - '0';
+    
+    if (is_odd) 
+    {
+        TopDigits *= 10;
+        // Safety check: if the mantissa is something like 0.4 (1 digit total, but odd magnitude)
+        if (Number->Mantissa->NrOfDigits > 1) 
+        {
+            TopDigits += Number->Mantissa->Digits[Number->Mantissa->NrOfDigits - 2] - '0';
+        }
+    }
+
+    unsigned int RootDigit = 1;
+    bool carry_exponent = false;
+
+    if (TopDigits > 81) { RootDigit = 1; carry_exponent = true; } 
+    else if (TopDigits > 64) RootDigit = 9;
+    else if (TopDigits > 49) RootDigit = 8;
+    else if (TopDigits > 36) RootDigit = 7;
+    else if (TopDigits > 25) RootDigit = 6;
+    else if (TopDigits > 16) RootDigit = 5;
+    else if (TopDigits > 9)  RootDigit = 4;
+    else if (TopDigits > 4)  RootDigit = 3;
+    else if (TopDigits > 1)  RootDigit = 2;
+    else RootDigit = 1; 
+
+    if (carry_exponent) 
+    {
+        E_root += 1;
+    }
+    // 5. Construct the 1-digit Mantissa
+    char* GuessString = malloc(2 * sizeof(char));
+    if (GuessString == NULL) return NULL;
+    
+    GuessString[0] = RootDigit + '0';
+    GuessString[1] = '\0';
+    
+    BigNumber* MantissaGuess = PrivateConstructor(GuessString, 1, false);
+
+    // 6. Return the fully packaged BigFloat
+    return PrivateConstructorFloat(MantissaGuess, E_root);
+}
+
+BigFloatNumber *SquareRoot(BigFloatNumber* Number, unsigned int precision) 
+{
+    if (Number == NULL || Number->Mantissa == NULL) return NULL;
+    if (Number->Mantissa->IsNegative) 
+    {
+        perror("Mathematical Error: Cannot calculate square root of a negative number (yet)");
+        return NULL;
+    }
+
+    unsigned int InternalPrecision = precision + 10;
+    unsigned int current_precision = 1; // Our hardware guess gives us roughly 1 correct digit
+
+    BigFloatNumber* InverseGuess = SquareRootInitialGuess(Number);
+    BigFloatNumber* One= InitFloat("1");
+    BigFloatNumber* Y=DivizionSetPrecision(One,InverseGuess,InternalPrecision);
+    BigFloatNumber* Three = InitFloat("3");
+
+    while (current_precision <= InternalPrecision)
+    {
+        // Y^2
+        BigFloatNumber* Y_Squared = MultiplyFloat(Y, Y);
+        RoundFloat(Y_Squared, InternalPrecision);
+
+        // S * Y^2
+        BigFloatNumber* TempMultiply = MultiplyFloat(Number, Y_Squared);
+        RoundFloat(TempMultiply, InternalPrecision);
+
+        // 3 - (S * Y^2)
+        BigFloatNumber* Difference = SubtractFloat(Three, TempMultiply);
+
+        // (3 - (S * Y^2))/2
+        DivizionBy2Float(Difference);
+
+        //Next Y = Y/2*(3 - (S * Y^2))
+        BigFloatNumber* NextY = MultiplyFloat(Y, Difference);
+        RoundFloat(NextY, InternalPrecision);
+
+        FreeMemoryFloat(Y_Squared);
+        FreeMemoryFloat(TempMultiply);
+        FreeMemoryFloat(Difference);
+        FreeMemoryFloat(Y);
+
+        Y = NextY; 
+        current_precision *= 2; // Quadratic convergence
+    }
+
+   // S * (1 / sqrt(S)) = sqrt(S)
+    BigFloatNumber* Result = MultiplyFloat(Number, Y);
+    RoundFloat(Result, precision); // Chop off the guard digits
+
+
+    FreeMemoryFloat(Three);
+    FreeMemoryFloat(Y);
+    FreeMemoryFloat(One);
+    FreeMemoryFloat(InverseGuess);
+
+    return Result;
+}
+
+BigFloatNumber *InverseSquareRoot(BigFloatNumber* Number, unsigned int precision) 
+{
+    if (Number == NULL || Number->Mantissa == NULL) return NULL;
+    if (Number->Mantissa->IsNegative) 
+    {
+        perror("Mathematical Error: Cannot calculate square root of a negative number (yet)");
+        return NULL;
+    }
+
+    unsigned int InternalPrecision = precision + 10;
+    unsigned int current_precision = 1; // Our hardware guess gives us roughly 1 correct digit
+
+    BigFloatNumber* InverseGuess = SquareRootInitialGuess(Number);
+    BigFloatNumber* One= InitFloat("1");
+    BigFloatNumber* Y=DivizionSetPrecision(One,InverseGuess,InternalPrecision);
+    BigFloatNumber* Three = InitFloat("3");
+
+    while (current_precision <= InternalPrecision)
+    {
+        // Y^2
+        BigFloatNumber* Y_Squared = MultiplyFloat(Y, Y);
+        RoundFloat(Y_Squared, InternalPrecision);
+
+        // S * Y^2
+        BigFloatNumber* TempMultiply = MultiplyFloat(Number, Y_Squared);
+        RoundFloat(TempMultiply, InternalPrecision);
+
+        // 3 - (S * Y^2)
+        BigFloatNumber* Difference = SubtractFloat(Three, TempMultiply);
+
+        // (3 - (S * Y^2))/2
+        DivizionBy2Float(Difference);
+
+        //Next Y = Y/2*(3 - (S * Y^2))
+        BigFloatNumber* NextY = MultiplyFloat(Y, Difference);
+        RoundFloat(NextY, InternalPrecision);
+
+        FreeMemoryFloat(Y_Squared);
+        FreeMemoryFloat(TempMultiply);
+        FreeMemoryFloat(Difference);
+        FreeMemoryFloat(Y);
+
+        Y = NextY; 
+        current_precision *= 2; // Quadratic convergence
+    }
+
+    FreeMemoryFloat(Three);
+    FreeMemoryFloat(One);
+    FreeMemoryFloat(InverseGuess);
+
+    return Y;
 }
 
 char *ToString(BigNumber *Number)
