@@ -6,7 +6,8 @@
 #include<ctype.h>
 #include<pthread.h>
 
-#define Karatsuba_BOUND 64 //at how many digits should standard multiplication be used instead of Karatsuba
+#define Karatsuba_BOUND 128 //At how many digits should standard multiplication be used instead of Karatsuba
+#define ToomCook3Way_BOUND 1024 //At how many digits should ToomCook3Way be used for multiplication instead of Karatsuba
 
 typedef struct{
     char* Digits;  //Digits are stored in reverse order for easier arithmetic operations
@@ -26,16 +27,38 @@ typedef struct {
     unsigned short int Iterations;
 }ThreadArgumentKaratsuba;
 
+typedef struct {
+    BigNumber *Number1;
+    BigNumber *Number2;
+    BigNumber *Result;
+    unsigned short int Iterations;
+}ThreadArgumentToomCook;
+
 typedef struct{
     BigNumber *Number;
     BigNumber *Result;
     unsigned short int Iterations;
 }ThreadArgumentKaratsubaSquared;
 
+typedef struct{
+    BigNumber *Number;
+    BigNumber *Result;
+    unsigned short int Iterations;
+}ThreadArgumentToomCookSquared;
+
+
 //Using the Compress Function 
 //Exponent < 0: It has decimals
 //Exponent == 0: It is an integer ending in 1-9 
 //Exponent > 0: It is an integer ending in 0`s 
+
+
+//CONSTANTS
+static BigFloatNumber* INTERNAL_GLOBAL_PI = NULL;
+static BigFloatNumber* INTERNAL_GLOBAL_LN10 = NULL;
+
+//MAXIMUM PRECISION THAT THE LIBRARY CAN CALCULATE AFTER INITIALIZATION ,note this can change if the user recalls InitializeBigNumberSupport() but it will recalculate the constants
+static unsigned int INTERNAL_GLOBAL_PRECISION = 0;
 
 
 void CleanTrailingZeros(BigNumber* Number)  //Eliminates Unecesary 0`s from the number
@@ -364,7 +387,13 @@ void ShiftRightNPositions(BigNumber *Number,unsigned int N) //For multiplication
 {  //DOESNT PRODUCE A NEW BIGINT, changes the argument in memory
    if(N<=0) return; //no change needed
 
+   if (Number->NrOfDigits == 1 && Number->Digits[0] == '0') return; //!!!Dont Shift the Number if it is 0,
+
    char *NewDigits=malloc(sizeof(char)*(Number->NrOfDigits+N+1)); //Prev Digits + positions +'\0'
+   if(NewDigits==NULL)
+     {
+      perror("Allocating Memory for NewDigits inside ShiftRight failed");
+     }
    strcpy(NewDigits,Number->Digits);
 
    unsigned int index=0;
@@ -574,7 +603,7 @@ void RoundFloat(BigFloatNumber *Number, unsigned int MaxPrecision) //Modifies th
         return; 
     }
 
-    unsigned int DigitsToChop =CurentPrecision-MaxPrecision; //  Calculate how many digits we need to chop off from the least significant side
+    long int DigitsToChop =CurentPrecision-MaxPrecision; //  Calculate how many digits we need to chop off from the least significant side
     if (DigitsToChop >= Number->Mantissa->NrOfDigits)
     {
         // Number goes to 0 if we need to chop to many digits
@@ -713,6 +742,16 @@ BigFloatNumber* SumFloat(BigFloatNumber* Number1,BigFloatNumber* Number2)
 
    //We need to normalize the number with the bigger exponent than use Sum on the Mantissas
    //For normalization we will use the ShiftRightNpositions
+
+  //If One of the Numbers is 0, Clone the other and return the clone
+  if (Number1->Mantissa->NrOfDigits == 1 && Number1->Mantissa->Digits[0] == '0')
+    {
+        return CloneBigNumberFloat(Number2);
+    }
+    if (Number2->Mantissa->NrOfDigits == 1 && Number2->Mantissa->Digits[0] == '0')
+    {
+        return CloneBigNumberFloat(Number1);
+    }
 
    long int RezultExponent;
    if(Number1->Exponent<Number2->Exponent)
@@ -1300,6 +1339,792 @@ BigNumber*  KaratsubaSquaredMultiThreaded(BigNumber*Number,unsigned short int Nu
     return Result;
 }
 
+//Implementation of Toom-Cook 3 way for Multiplication ~O(n^1.46)
+
+//====================STEP 1 SPLIT
+//Consider X,Y two integers
+//First We need to Split the Numbers into 3 parts and construct 2 second degree polynomials
+//P(t)=x_2t^2+x_1t+x_0 and Q(t)=y_2t^2+y_1t+y_0 where t=10^k
+//Multiply the two to obtain R(t)=r_4t^4+r_3t^3+r_2t^2+r_1t^1+r_0
+
+//====================STEP 2 EVALUATE AT 5 POINTS
+//To find each r_i we need 5 t_i={0,1,-1,-2,inf} => 
+//P(0)=x_0 , P(1)=x_2+x_1+x_0 ,P(-1)=x_2-x_1+x_0 ,P(-2)=4x_2-2x_1+x_0 P(inf)=x^2
+//Q(0)=y_0 , Q(1)=y_2+y_1+y_0 ,Q(-1)=y_2-y_1+y_0 ,Q(-2)=4y_2-2y_1+y_0 Q(inf)=x^2
+
+//====================STEP 3 RECURSION
+//We get W(i)=P(i)*Q(i) for i={0,1,2,3,inf} ,each of these will be a recursive call
+//At some defined threshold we can use either Karatsuba or StandardMultiplication
+
+//====================STEP 4 SOLVE FOR COEFFICIENTS
+//Finally we can fiind the coeff of R(i) in the following way:
+//r_0=W(0) ,r_4=W(inf) ,r_2=(W(1)+W(-1))/2-R(0)-R(4) ,r_3=(16R(4)+4R(2)+W(-1)-W(1)+W(0)-W(-2))/6 ,r_1=(W(1)-W(-1))/2-R(3)
+
+//====================STEP 5 RECOMPOSE
+//Final result will be R(t)=r_410^4k+r_310^3k+r_210^2k+r_110^k+r_0
+
+void MultiplyBy2(BigNumber* Number) //Modifies the NUMBER in MEMORY, DOENST RETURN A NEW ONE
+{
+    if (Number == NULL || Number->NrOfDigits == 0) return;
+
+    //An O(NrOfDigits) algoritm to quickly find Number*2 in memory without any Auxiliary Memory and No Garbage Collection
+    //Very Usefull in Newton-Raphson iterations for Inverse
+
+    unsigned int carry = 0;
+    for (unsigned int i = 0; i < Number->NrOfDigits; i++)
+    {
+        unsigned int current_digit = Number->Digits[i] - '0';
+        unsigned int doubled = (current_digit << 1) + carry; // digit * 2 + carry
+        
+        Number->Digits[i] = (doubled % 10) + '0';
+        carry = doubled / 10;
+    }
+
+    if (carry > 0)
+    {
+        Number->NrOfDigits++;
+        Number->Digits = realloc(Number->Digits, Number->NrOfDigits + 1);
+        if (Number->Digits == NULL)
+        {
+            perror("Memory reallocation failed in MultiplyBy2");
+            exit(-1);
+        }
+        Number->Digits[Number->NrOfDigits - 1] = carry + '0';
+        Number->Digits[Number->NrOfDigits] = '\0';
+    }
+}
+
+void DivideBy2(BigNumber* X)
+{
+    if (X == NULL) return;
+
+    int carry = 0;
+    for (long int i =X->NrOfDigits - 1; i >= 0; i--)
+    {
+        int current_digit = X->Digits[i] - '0';
+        int next_carry = (current_digit % 2 != 0) ? 5 : 0; 
+        X->Digits[i] = (current_digit / 2) + carry + '0'; 
+        carry = next_carry;
+    }
+    CleanTrailingZeros(X); 
+}
+void DivideBy6(BigNumber* X)
+{
+    if (X == NULL) return;
+  
+    int remainder = 0;
+
+    for (long int i = X->NrOfDigits - 1; i >= 0; i--)
+    {
+        int current_val = (remainder * 10) + (X->Digits[i] - '0');
+        X->Digits[i] = (current_val / 6) + '0';
+        remainder = current_val % 6;
+    }
+    CleanTrailingZeros(X);
+}
+
+BigNumber* ExtractToomChunk(BigNumber* X, unsigned int start_index, unsigned int max_length) //O(N)
+{
+    // If the chunk starts outside the bounds of the number, the chunk is just "0"
+    if (start_index >= X->NrOfDigits) 
+    {
+        return Init("0");
+    }
+
+    unsigned int actual_length = max_length;
+    
+    // If the chunk reaches past the end of the number, cap the length
+    if (start_index + actual_length > X->NrOfDigits) 
+    {
+        actual_length = X->NrOfDigits - start_index;
+    }
+
+    while (actual_length > 1 && X->Digits[start_index + actual_length - 1] == '0') 
+    {
+        actual_length--;
+    }
+
+    BigNumber* Chunk = malloc(sizeof(BigNumber));
+    if(Chunk==NULL)
+      {
+         perror("Allocating memory for Split Inside ExtractToomCook Failed");
+         exit(-1);
+      }
+    Chunk->IsNegative = false; // Polynomial chunks are always evaluated as positive
+    Chunk->NrOfDigits = actual_length;
+    Chunk->Digits = malloc((actual_length + 1) * sizeof(char));
+
+    memcpy(Chunk->Digits, X->Digits + start_index, actual_length);
+    Chunk->Digits[actual_length] = '\0';
+
+    return Chunk;
+}
+
+void SplitToom3(BigNumber* Number, unsigned int k, BigNumber** x0, BigNumber** x1, BigNumber** x2) 
+{
+    if (Number == NULL) return;
+
+    // x0 represents the lowest digits (10^0 to 10^k)
+    *x0 = ExtractToomChunk(Number, 0, k);
+
+    // x1 represents the middle digits (10^k to 10^2k)
+    *x1 = ExtractToomChunk(Number, k, k);
+
+    // x2 represents the highest digits (10^2k and beyond)
+    *x2 = ExtractToomChunk(Number, 2 * k, k); 
+}
+
+BigNumber *ToomCook3Way(BigNumber* X,BigNumber* Y)
+{
+  if(X->NrOfDigits<ToomCook3Way_BOUND || Y->NrOfDigits<ToomCook3Way_BOUND)
+    {
+      if (X->NrOfDigits < Karatsuba_BOUND || Y->NrOfDigits < Karatsuba_BOUND) 
+        {
+            return StandardMultiply(X, Y); 
+        }
+      return Karatsuba(X,Y);
+    } 
+  
+  // Find the split (splits in 3 hence the name) size based on the largest number
+    unsigned int MaxDigits = (X->NrOfDigits > Y->NrOfDigits) ? X->NrOfDigits : Y->NrOfDigits;
+    unsigned int k = (MaxDigits + 2) / 3; // (Ceiling of MaxDigits)/3
+
+    //Declare our 6 polynomial chunks
+    BigNumber *X0, *X1, *X2;
+    BigNumber *Y0, *Y1, *Y2;
+
+    //STEP 1 SPLIT
+    SplitToom3(X, k, &X0, &X1, &X2);
+    SplitToom3(Y, k, &Y0, &Y1, &Y2);
+
+    // STEPT 2 EVALUATION
+    // We evaluate P(t) and Q(t) at points: 0, 1, -1, -2, and infinity
+
+    // P(1) = X0 + X1 + X2   |   P(-1) = X0 - X1 + X2
+    BigNumber *SumX0X2 = Sum(X0, X2);
+    BigNumber *PX_1 = Sum(SumX0X2, X1);
+    BigNumber *PX_minus1 = Subtract(SumX0X2, X1); 
+
+    BigNumber *SumY0Y2 = Sum(Y0, Y2);
+    BigNumber *PY_1 = Sum(SumY0Y2, Y1);
+    BigNumber *PY_minus1 = Subtract(SumY0Y2, Y1);
+
+    // P(-2) = X0 - 2*X1 + 4*X2
+    BigNumber *TwoX1 = CloneBigNumber(X1);
+    MultiplyBy2(TwoX1); 
+    
+    BigNumber *FourX2 = CloneBigNumber(X2);
+    MultiplyBy2(FourX2); MultiplyBy2(FourX2);
+    
+    BigNumber *SumX0_FourX2 = Sum(X0, FourX2);
+    BigNumber *PX_minus2 = Subtract(SumX0_FourX2, TwoX1);
+
+    BigNumber *TwoY1 = CloneBigNumber(Y1);
+    MultiplyBy2(TwoY1); 
+    
+    BigNumber *FourY2 = CloneBigNumber(Y2);
+    MultiplyBy2(FourY2); MultiplyBy2(FourY2);
+    
+    BigNumber *SumY0_FourY2 = Sum(Y0, FourY2);
+    BigNumber *PY_minus2 = Subtract(SumY0_FourY2, TwoY1);
+
+    // STEP 3 RECURSION
+    
+    BigNumber *W_0 = ToomCook3Way(X0, Y0);
+    BigNumber *W_inf = ToomCook3Way(X2, Y2); 
+    BigNumber *W_1 = ToomCook3Way(PX_1, PY_1);
+    BigNumber *W_minus1 = ToomCook3Way(PX_minus1, PY_minus1);
+    BigNumber *W_minus2 = ToomCook3Way(PX_minus2, PY_minus2);
+
+
+    FreeMemory(SumX0X2); FreeMemory(PX_1); FreeMemory(PX_minus1);
+    FreeMemory(TwoX1); FreeMemory(FourX2); FreeMemory(SumX0_FourX2); FreeMemory(PX_minus2);
+    
+    FreeMemory(SumY0Y2); FreeMemory(PY_1); FreeMemory(PY_minus1);
+    FreeMemory(TwoY1); FreeMemory(FourY2); FreeMemory(SumY0_FourY2); FreeMemory(PY_minus2);
+    
+    FreeMemory(X0); FreeMemory(X1); FreeMemory(X2);
+    FreeMemory(Y0); FreeMemory(Y1); FreeMemory(Y2);
+
+  
+   //STEP 4 INTERPOLATION 
+
+   // R0 = W_0 R4 = W_inf
+    BigNumber *R0 = W_0;
+    BigNumber *R4 = W_inf;
+
+    // R2 = (W_1 + W_minus1)/2 - R0 - R4
+    BigNumber *SumW1_Wminus1 = Sum(W_1, W_minus1);
+    
+    // IN-PLACE DIVISION: SumW1_Wminus1 becomes HalfSum!
+    DivideBy2(SumW1_Wminus1); 
+    
+    BigNumber *HalfSum_Minus_R0 = Subtract(SumW1_Wminus1, R0);
+    BigNumber *R2 = Subtract(HalfSum_Minus_R0, R4);
+
+    // R3 = (16*R4 + 4*R2 + W_minus1 - W_1 + W_0 - W_minus2) / 6
+    BigNumber *SixteenR4 = CloneBigNumber(R4);
+    MultiplyBy2(SixteenR4); MultiplyBy2(SixteenR4); 
+    MultiplyBy2(SixteenR4); MultiplyBy2(SixteenR4); 
+    
+    BigNumber *FourR2 = CloneBigNumber(R2);
+    MultiplyBy2(FourR2); MultiplyBy2(FourR2);
+    
+    BigNumber *Term1 = Sum(SixteenR4, FourR2);
+    BigNumber *Term2 = Sum(Term1, W_minus1);
+    BigNumber *Term3 = Subtract(Term2, W_1);
+    BigNumber *Term4 = Sum(Term3, W_0);
+    
+    BigNumber *NumeratorR3 = Subtract(Term4, W_minus2);
+    
+    // IN-PLACE DIVISION: NumeratorR3 BECOMES R3!
+    DivideBy6(NumeratorR3); 
+    BigNumber *R3 = NumeratorR3; // Map the pointer directly
+
+    // 5. R1 = (W_1 - W_minus1)/2 - R3
+    BigNumber *SubW1_Wminus1 = Subtract(W_1, W_minus1);
+    DivideBy2(SubW1_Wminus1);
+    
+    BigNumber *R1 = Subtract(SubW1_Wminus1, R3);
+
+    FreeMemory(SumW1_Wminus1); 
+    FreeMemory(HalfSum_Minus_R0);
+    FreeMemory(SixteenR4); 
+    FreeMemory(FourR2);
+    FreeMemory(Term1); 
+    FreeMemory(Term2); 
+    FreeMemory(Term3); 
+    FreeMemory(Term4); 
+    FreeMemory(SubW1_Wminus1); 
+    
+    FreeMemory(W_1); 
+    FreeMemory(W_minus1); 
+    FreeMemory(W_minus2);
+
+    // PHASE 5: RECOMPOSITION (Shift and Add)
+    // Result = R4*10^(4k) + R3*10^(3k) + R2*10^(2k) + R1*10^k + R0
+
+    
+    ShiftRightNPositions(R4, 4 * k);
+    ShiftRightNPositions(R3, 3 * k);
+    ShiftRightNPositions(R2, 2 * k);
+    ShiftRightNPositions(R1, k);
+
+    BigNumber *Res1 = Sum(R0, R1);
+    BigNumber *Res2 = Sum(Res1, R2);
+    BigNumber *Res3 = Sum(Res2, R3);
+    BigNumber *FinalResult = Sum(Res3, R4);
+
+    // Remove any leading zeros that might have formed
+    CleanTrailingZeros(FinalResult);
+
+    FreeMemory(R0); FreeMemory(R1); FreeMemory(R2); FreeMemory(R3); FreeMemory(R4);
+    FreeMemory(Res1); FreeMemory(Res2); FreeMemory(Res3);
+
+    FinalResult->IsNegative = (X->IsNegative != Y->IsNegative);
+    return FinalResult;
+}
+
+BigNumber* ToomCook3WayMultiThreaded(BigNumber* X, BigNumber* Y, unsigned short int NumberOfIterations);
+void* ToomCook3WayTheadFunc(void *argument)
+{
+    ThreadArgumentToomCook *args = (ThreadArgumentToomCook*)argument;
+    args->Result = ToomCook3WayMultiThreaded(args->Number1, args->Number2, args->Iterations); 
+    return NULL;
+}
+BigNumber *ToomCook3WayMultiThreaded(BigNumber* X, BigNumber *Y,unsigned short int NumberOfInterations)
+{
+   if(X->NrOfDigits<ToomCook3Way_BOUND || Y->NrOfDigits<ToomCook3Way_BOUND)
+     {
+      if (X->NrOfDigits < Karatsuba_BOUND || Y->NrOfDigits < Karatsuba_BOUND) 
+        {
+            return StandardMultiply(X, Y); 
+        }
+      return Karatsuba(X,Y);
+     }
+  
+  // Find the split size based on the largest number
+    unsigned int MaxDigits = (X->NrOfDigits > Y->NrOfDigits) ? X->NrOfDigits : Y->NrOfDigits;
+    unsigned int k = (MaxDigits + 2) / 3; // (Ceiling of MaxDigits)/3
+
+    //Declare our 6 polynomial chunks
+    BigNumber *X0, *X1, *X2;
+    BigNumber *Y0, *Y1, *Y2;
+
+    //STEP 1 SPLIT
+    SplitToom3(X, k, &X0, &X1, &X2);
+    SplitToom3(Y, k, &Y0, &Y1, &Y2);
+
+    // STEPT 2 EVALUATION
+    // We evaluate P(t) and Q(t) at points: 0, 1, -1, -2, and infinity
+
+    // P(1) = X0 + X1 + X2   |   P(-1) = X0 - X1 + X2
+    BigNumber *SumX0X2 = Sum(X0, X2);
+    BigNumber *PX_1 = Sum(SumX0X2, X1);
+    BigNumber *PX_minus1 = Subtract(SumX0X2, X1); 
+
+    BigNumber *SumY0Y2 = Sum(Y0, Y2);
+    BigNumber *PY_1 = Sum(SumY0Y2, Y1);
+    BigNumber *PY_minus1 = Subtract(SumY0Y2, Y1);
+
+    // P(-2) = X0 - 2*X1 + 4*X2
+    BigNumber *TwoX1 = CloneBigNumber(X1);
+    MultiplyBy2(TwoX1); 
+    
+    BigNumber *FourX2 = CloneBigNumber(X2);
+    MultiplyBy2(FourX2); MultiplyBy2(FourX2);
+    
+    BigNumber *SumX0_FourX2 = Sum(X0, FourX2);
+    BigNumber *PX_minus2 = Subtract(SumX0_FourX2, TwoX1);
+
+    BigNumber *TwoY1 = CloneBigNumber(Y1);
+    MultiplyBy2(TwoY1); 
+    
+    BigNumber *FourY2 = CloneBigNumber(Y2);
+    MultiplyBy2(FourY2); MultiplyBy2(FourY2);
+    
+    BigNumber *SumY0_FourY2 = Sum(Y0, FourY2);
+    BigNumber *PY_minus2 = Subtract(SumY0_FourY2, TwoY1);
+
+    // STEP 3 RECURSION --Maximum Number of Iterations should be 2 as NumberOfThreads being created is equal to 5^NrOfIterations
+    BigNumber *W_0 = NULL;
+    BigNumber *W_inf =  NULL; 
+    BigNumber *W_1 = NULL;
+    BigNumber *W_minus1 = NULL;
+    BigNumber *W_minus2 = NULL;
+    if(NumberOfInterations>0)
+      {
+        pthread_t ThreadW_0, ThreadW_inf, ThreadW_1, ThreadW_minus1, ThreadW_minus2;
+        
+        unsigned short int NextIterations = NumberOfInterations- 1;
+
+        ThreadArgumentToomCook ThreadArgumentW_0 = {X0, Y0, NULL, NextIterations};
+        ThreadArgumentToomCook ThreadArgumentW_inf = {X2, Y2, NULL, NextIterations};
+        ThreadArgumentToomCook ThreadArgumentW_1 = {PX_1, PY_1, NULL, NextIterations};
+        ThreadArgumentToomCook ThreadArgumentW_minus1 = {PX_minus1, PY_minus1, NULL, NextIterations};
+        ThreadArgumentToomCook ThreadArgumentW_minus2 = {PX_minus2, PY_minus2, NULL, NextIterations};
+
+        pthread_create(&ThreadW_0, NULL, ToomCook3WayTheadFunc, &ThreadArgumentW_0);
+        pthread_create(&ThreadW_inf, NULL, ToomCook3WayTheadFunc, &ThreadArgumentW_inf); 
+        pthread_create(&ThreadW_1, NULL, ToomCook3WayTheadFunc, &ThreadArgumentW_1);
+        pthread_create(&ThreadW_minus1, NULL, ToomCook3WayTheadFunc, &ThreadArgumentW_minus1);
+        pthread_create(&ThreadW_minus2, NULL, ToomCook3WayTheadFunc, &ThreadArgumentW_minus2);
+
+        pthread_join(ThreadW_0, NULL);
+        pthread_join(ThreadW_inf, NULL);
+        pthread_join(ThreadW_1, NULL);
+        pthread_join(ThreadW_minus1, NULL);
+        pthread_join(ThreadW_minus2, NULL);
+
+        W_0 = ThreadArgumentW_0.Result;
+        W_inf = ThreadArgumentW_inf.Result;
+        W_1 = ThreadArgumentW_1.Result;
+        W_minus1 = ThreadArgumentW_minus1.Result;
+        W_minus2 = ThreadArgumentW_minus2.Result;
+      }
+    else
+      {
+        W_0 = ToomCook3Way(X0, Y0);
+        W_inf = ToomCook3Way(X2, Y2); 
+        W_1 = ToomCook3Way(PX_1, PY_1);
+        W_minus1 = ToomCook3Way(PX_minus1, PY_minus1);
+        W_minus2 = ToomCook3Way(PX_minus2, PY_minus2);
+      }
+
+    FreeMemory(SumX0X2); FreeMemory(PX_1); FreeMemory(PX_minus1);
+    FreeMemory(TwoX1); FreeMemory(FourX2); FreeMemory(SumX0_FourX2); FreeMemory(PX_minus2);
+    
+    FreeMemory(SumY0Y2); FreeMemory(PY_1); FreeMemory(PY_minus1);
+    FreeMemory(TwoY1); FreeMemory(FourY2); FreeMemory(SumY0_FourY2); FreeMemory(PY_minus2);
+    
+    FreeMemory(X0); FreeMemory(X1); FreeMemory(X2);
+    FreeMemory(Y0); FreeMemory(Y1); FreeMemory(Y2);
+
+  
+    //STEP 4 INTERPOLATION 
+   
+     BigNumber *R0 = W_0;
+     BigNumber* R4 = W_inf;
+
+    // R2 = (W_1 + W_minus1)/2 - R0 - R4
+    BigNumber *SumW1_Wminus1 = Sum(W_1, W_minus1);
+    DivideBy2(SumW1_Wminus1); 
+    BigNumber *HalfSum_Minus_R0 = Subtract(SumW1_Wminus1, R0);
+    BigNumber *R2 = Subtract(HalfSum_Minus_R0, R4);
+
+    // R3 = (16*R4 + 4*R2 + W_minus1 - W_1 + W_0 - W_minus2) / 6
+    BigNumber *SixteenR4 = CloneBigNumber(R4);
+    MultiplyBy2(SixteenR4); MultiplyBy2(SixteenR4); 
+    MultiplyBy2(SixteenR4); MultiplyBy2(SixteenR4); 
+    
+    BigNumber *FourR2 = CloneBigNumber(R2);
+    MultiplyBy2(FourR2); MultiplyBy2(FourR2);
+    
+    BigNumber *Term1 = Sum(SixteenR4, FourR2);
+    BigNumber *Term2 = Sum(Term1, W_minus1);
+    BigNumber *Term3 = Subtract(Term2, W_1);
+    BigNumber *Term4 = Sum(Term3, W_0);
+    BigNumber *NumeratorR3 = Subtract(Term4, W_minus2);
+    DivideBy6(NumeratorR3); 
+    BigNumber *R3 = NumeratorR3; 
+
+    //R1 = (W_1 - W_minus1)/2 - R3
+    BigNumber *SubW1_Wminus1 = Subtract(W_1, W_minus1);
+    DivideBy2(SubW1_Wminus1);
+    BigNumber *R1 = Subtract(SubW1_Wminus1, R3);
+
+    FreeMemory(SumW1_Wminus1); 
+    FreeMemory(HalfSum_Minus_R0);
+    FreeMemory(SixteenR4); 
+    FreeMemory(FourR2);
+    FreeMemory(Term1); 
+    FreeMemory(Term2); 
+    FreeMemory(Term3); 
+    FreeMemory(Term4); 
+    FreeMemory(SubW1_Wminus1); 
+    
+    FreeMemory(W_1); 
+    FreeMemory(W_minus1); 
+    FreeMemory(W_minus2); 
+
+    // STEP 5: RECOMPOSITION
+    // Result = R4*10^(4k) + R3*10^(3k) + R2*10^(2k) + R1*10^k + R0
+
+    ShiftRightNPositions(R4, 4 * k);
+    ShiftRightNPositions(R3, 3 * k);
+    ShiftRightNPositions(R2, 2 * k);
+    ShiftRightNPositions(R1, k);
+
+    BigNumber *Res1 = Sum(R0, R1);
+    BigNumber *Res2 = Sum(Res1, R2);
+    BigNumber *Res3 = Sum(Res2, R3);
+    BigNumber *FinalResult = Sum(Res3, R4);
+
+    CleanTrailingZeros(FinalResult);
+
+    FreeMemory(R0); FreeMemory(R1); FreeMemory(R2); FreeMemory(R3); FreeMemory(R4);
+    FreeMemory(Res1); FreeMemory(Res2); FreeMemory(Res3);
+    
+    FinalResult->IsNegative = (X->IsNegative != Y->IsNegative);
+    return FinalResult;
+}
+
+//Optimezed Implementation of ToomCook3Way for Squaring a BigNumber 
+//Complexity is half the memory and time needed for the classical ToomCook3Way
+//We only construct one second degree polynomial P(t)=Q(t) and the coeff will also be squares as W(i)=P(i)^2 then we make 5 reccursive ToomCook3WaySquared calls
+//====================STEP 1 SPLIT
+//Consider X:=Number
+//First We need to Split the Number into 3 parts and construct 2 second degree polynomial
+//P(t)=x_2t^2+x_1t+x_0
+//Square the polynomial to obtain R(t)=r_4t^4+r_3t^3+r_2t^2+r_1t^1+r_0
+
+//====================STEP 2 EVALUATE AT 5 POINTS
+//To find each r_i we need 5 t_i={0,1,-1,-2,inf} => 
+//P(0)=x_0 , P(1)=x_2+x_1+x_0 ,P(-1)=x_2-x_1+x_0 ,P(-2)=4x_2-2x_1+x_0 P(inf)=x^2
+
+//====================STEP 3 RECURSION
+//We get W(i)=P(i)*P(i) for i={0,1,2,3,inf} ,each of these will be a recursive call
+//At some defined threshold we can use either KaratsubaSquared or StandardMultiplicationSquared
+
+//====================STEP 4 SOLVE FOR COEFFICIENTS
+//Finally we can fiind the coeff of R(i) in the following way:
+//r_0=W(0) ,r_4=W(inf) ,r_2=(W(1)+W(-1))/2-R(0)-R(4) ,r_3=(16R(4)+4R(2)+W(-1)-W(1)+W(0)-W(-2))/6 ,r_1=(W(1)-W(-1))/2-R(3)
+
+//====================STEP 5 RECOMPOSE
+//Final result will be R(t)=r_410^4k+r_310^3k+r_210^2k+r_110^k+r_0
+
+BigNumber *ToomCook3WaySquared(BigNumber *X)
+{
+    if(X->NrOfDigits <ToomCook3Way_BOUND)
+       {
+        if (X->NrOfDigits < Karatsuba_BOUND ) 
+        {
+            return StandardSquare(X); 
+        }
+
+        return KaratsubaSquared(X);
+      }
+
+    unsigned int k = (X->NrOfDigits + 2) / 3; // (Ceiling of X->NrOfDigits)/3
+
+    //Declare our 6 polynomial chunks
+    BigNumber *X0, *X1, *X2;
+
+    //STEP 1 SPLIT
+    SplitToom3(X, k, &X0, &X1, &X2);
+
+    // STEPT 2 EVALUATION
+    // We evaluate P(t) at points: 0, 1, -1, -2, and infinity
+
+    // P(1) = X0 + X1 + X2   |   P(-1) = X0 - X1 + X2
+    BigNumber *SumX0X2 = Sum(X0, X2);
+    BigNumber *PX_1 = Sum(SumX0X2, X1);
+    BigNumber *PX_minus1 = Subtract(SumX0X2, X1); 
+
+    // P(-2) = X0 - 2*X1 + 4*X2
+    BigNumber *TwoX1 = CloneBigNumber(X1);
+    MultiplyBy2(TwoX1);  
+    BigNumber *FourX2 = CloneBigNumber(X2);
+    MultiplyBy2(FourX2); MultiplyBy2(FourX2); 
+    BigNumber *SumX0_FourX2 = Sum(X0, FourX2);
+    BigNumber *PX_minus2 = Subtract(SumX0_FourX2, TwoX1);
+
+    // STEP 3 RECURSION
+    
+    BigNumber *W_0 = ToomCook3WaySquared(X0);
+    BigNumber *W_inf = ToomCook3WaySquared(X2); 
+    BigNumber *W_1 = ToomCook3WaySquared(PX_1);
+    BigNumber *W_minus1 = ToomCook3WaySquared(PX_minus1);
+    BigNumber *W_minus2 = ToomCook3WaySquared(PX_minus2);
+
+    FreeMemory(SumX0X2); FreeMemory(PX_1); FreeMemory(PX_minus1);
+    FreeMemory(TwoX1); FreeMemory(FourX2); FreeMemory(SumX0_FourX2); FreeMemory(PX_minus2);
+    FreeMemory(X0); FreeMemory(X1); FreeMemory(X2);
+
+    //STEPT 4 INTERPOLATION 
+    // R0 = W_0   R4 = W_inf
+    BigNumber *R0 =W_0;
+    BigNumber *R4 =W_inf;
+
+    // R2 = (W_1 + W_minus1)/2 - R0 - R4
+    BigNumber *SumW1_Wminus1 = Sum(W_1, W_minus1);
+    DivideBy2(SumW1_Wminus1); 
+    BigNumber *HalfSum_Minus_R0 = Subtract(SumW1_Wminus1, R0);
+    BigNumber *R2 = Subtract(HalfSum_Minus_R0, R4);
+
+    // R3 = (16*R4 + 4*R2 + W_minus1 - W_1 + W_0 - W_minus2) / 6
+    BigNumber *SixteenR4 = CloneBigNumber(R4);
+    MultiplyBy2(SixteenR4); MultiplyBy2(SixteenR4); 
+    MultiplyBy2(SixteenR4); MultiplyBy2(SixteenR4);    
+    BigNumber *FourR2 = CloneBigNumber(R2);
+    MultiplyBy2(FourR2); MultiplyBy2(FourR2);
+    
+    BigNumber *Term1 = Sum(SixteenR4, FourR2);
+    BigNumber *Term2 = Sum(Term1, W_minus1);
+    BigNumber *Term3 = Subtract(Term2, W_1);
+    BigNumber *Term4 = Sum(Term3, W_0);
+    
+    BigNumber *NumeratorR3 = Subtract(Term4, W_minus2);
+    DivideBy6(NumeratorR3); 
+    BigNumber *R3 = NumeratorR3;
+
+    // 5. R1 = (W_1 - W_minus1)/2 - R3
+    BigNumber *SubW1_Wminus1 = Subtract(W_1, W_minus1);
+    DivideBy2(SubW1_Wminus1);
+    
+    BigNumber *R1 = Subtract(SubW1_Wminus1, R3);
+
+    FreeMemory(SumW1_Wminus1); 
+    FreeMemory(HalfSum_Minus_R0);
+    FreeMemory(SixteenR4); 
+    FreeMemory(FourR2);
+    FreeMemory(Term1); 
+    FreeMemory(Term2); 
+    FreeMemory(Term3); 
+    FreeMemory(Term4); 
+    FreeMemory(SubW1_Wminus1); 
+    
+    FreeMemory(W_1); 
+    FreeMemory(W_minus1); 
+    FreeMemory(W_minus2);
+
+    // PHASE 5: RECOMPOSITION (Shift and Add)
+    // Result = R4*10^(4k) + R3*10^(3k) + R2*10^(2k) + R1*10^k + R0
+   
+    ShiftRightNPositions(R4, 4 * k);
+    ShiftRightNPositions(R3, 3 * k);
+    ShiftRightNPositions(R2, 2 * k);
+    ShiftRightNPositions(R1, k);
+
+    BigNumber *Res1 = Sum(R0, R1);
+    BigNumber *Res2 = Sum(Res1, R2);
+    BigNumber *Res3 = Sum(Res2, R3);
+    BigNumber *FinalResult = Sum(Res3, R4);
+
+    CleanTrailingZeros(FinalResult);
+
+    FreeMemory(R0); FreeMemory(R1); FreeMemory(R2); FreeMemory(R3); FreeMemory(R4);
+    FreeMemory(Res1); FreeMemory(Res2); FreeMemory(Res3);
+
+    return FinalResult;
+}
+
+//A MultiThreaded Version to ToomCook3WaySquared for really big numbers
+//Again the number of threads are growing exponentially (5^NumberOfIterations) 
+//With that being said on most Systems, NumberOfIterations should be 1 (or 2 on newer Intel CPU`s or 3 on ThreadRipper Systems)
+BigNumber *ToomCook3WaySquareMultiThreaded(BigNumber* X, unsigned short int NumberOfIterations);
+void* ToomCook3WaySquareThreadFunc(void *argument)
+{
+    ThreadArgumentToomCookSquared* args=(ThreadArgumentToomCookSquared*)argument;
+    args->Result = ToomCook3WaySquareMultiThreaded(args->Number, args->Iterations); 
+    return NULL;
+}
+BigNumber *ToomCook3WaySquareMultiThreaded(BigNumber* X, unsigned short int NumberOfIterations)
+{
+    if(X->NrOfDigits < ToomCook3Way_BOUND)
+        { 
+          if(X->NrOfDigits < Karatsuba_BOUND)
+            {
+              return StandardSquare(X);
+            }
+          return KaratsubaSquared(X);
+        }
+  
+    unsigned int k = (X->NrOfDigits + 2) / 3;
+
+    BigNumber *X0, *X1, *X2;
+    SplitToom3(X, k, &X0, &X1, &X2);
+
+    // ==========================================================
+    // STEP 2: EVALUATION 
+    // ==========================================================
+    
+    // P(1) = X0 + X1 + X2   |   P(-1) = X0 - X1 + X2
+    BigNumber *SumX0X2 = Sum(X0, X2);
+    BigNumber *PX_1 = Sum(SumX0X2, X1);
+    BigNumber *PX_minus1 = Subtract(SumX0X2, X1); 
+
+    // P(-2) = X0 - 2*X1 + 4*X2
+    MultiplyBy2(X1); //
+    BigNumber *FourX2 = CloneBigNumber(X2);
+    MultiplyBy2(FourX2); MultiplyBy2(FourX2);
+    BigNumber *SumX0_FourX2 = Sum(X0, FourX2);
+    BigNumber *PX_minus2 = Subtract(SumX0_FourX2, X1);
+
+    // ==========================================================
+    // STEP 3: RECURSIVE SQUARING
+    // ==========================================================
+    BigNumber *W_0 = NULL, *W_inf = NULL, *W_1 = NULL, *W_minus1 = NULL, *W_minus2 = NULL;
+    
+    if(NumberOfIterations > 0)
+    {
+        pthread_t ThreadW_0, ThreadW_inf, ThreadW_1, ThreadW_minus1, ThreadW_minus2;
+        unsigned short int NextIterations = NumberOfIterations - 1;
+
+        ThreadArgumentToomCookSquared ArgW_0 = {X0, NULL, NextIterations};
+        ThreadArgumentToomCookSquared ArgW_inf = {X2, NULL, NextIterations};
+        ThreadArgumentToomCookSquared ArgW_1 = {PX_1, NULL, NextIterations};
+        ThreadArgumentToomCookSquared ArgW_minus1 = {PX_minus1, NULL, NextIterations};
+        ThreadArgumentToomCookSquared ArgW_minus2 = {PX_minus2, NULL, NextIterations};
+
+        if(pthread_create(&ThreadW_0, NULL, ToomCook3WaySquareThreadFunc, &ArgW_0)!=0) 
+        {
+          perror("Creating Thread FAILED");
+          exit(-2);
+        }
+        if(pthread_create(&ThreadW_inf, NULL, ToomCook3WaySquareThreadFunc, &ArgW_inf)!=0) 
+        {
+          perror("Creating Thread FAILED");
+          exit(-2);
+        }
+        if(pthread_create(&ThreadW_1, NULL, ToomCook3WaySquareThreadFunc, &ArgW_1)!=0) 
+        {
+          perror("Creating Thread FAILED");
+          exit(-2);
+        }
+        if(pthread_create(&ThreadW_minus1, NULL, ToomCook3WaySquareThreadFunc, &ArgW_minus1)!=0) {
+          perror("Creating Thread FAILED");
+          exit(-2);
+        }
+        if(pthread_create(&ThreadW_minus2, NULL, ToomCook3WaySquareThreadFunc, &ArgW_minus2)!=0) 
+        {
+          perror("Creating Thread FAILED");
+          exit(-2);
+        }
+
+        pthread_join(ThreadW_0, NULL);
+        pthread_join(ThreadW_inf, NULL);
+        pthread_join(ThreadW_1, NULL);
+        pthread_join(ThreadW_minus1, NULL);
+        pthread_join(ThreadW_minus2, NULL);
+
+        W_0 = ArgW_0.Result;
+        W_inf = ArgW_inf.Result;
+        W_1 = ArgW_1.Result;
+        W_minus1 = ArgW_minus1.Result;
+        W_minus2 = ArgW_minus2.Result;
+    }
+    else
+    {
+        W_0 = ToomCook3WaySquared(X0);
+        W_inf = ToomCook3WaySquared(X2); 
+        W_1 = ToomCook3WaySquared(PX_1);
+        W_minus1 = ToomCook3WaySquared(PX_minus1);
+        W_minus2 = ToomCook3WaySquared(PX_minus2);
+    }
+
+    FreeMemory(SumX0X2); FreeMemory(PX_1); FreeMemory(PX_minus1);
+    FreeMemory(FourX2); FreeMemory(SumX0_FourX2); FreeMemory(PX_minus2);
+    FreeMemory(X0); FreeMemory(X1); FreeMemory(X2);
+
+    //STEPT 4 INTERPOLATION 
+    // R0 = W_0   R4 = W_inf
+    BigNumber *R0 = W_0;
+    BigNumber *R4 = W_inf;
+
+    // R2 = (W_1 + W_minus1)/2 - R0 - R4
+    BigNumber *SumW1_Wminus1 = Sum(W_1, W_minus1);
+    DivideBy2(SumW1_Wminus1); 
+    BigNumber *HalfSum_Minus_R0 = Subtract(SumW1_Wminus1, R0);
+    BigNumber *R2 = Subtract(HalfSum_Minus_R0, R4);
+
+    // R3 = (16*R4 + 4*R2 + W_minus1 - W_1 + W_0 - W_minus2) / 6
+    BigNumber *SixteenR4 = CloneBigNumber(R4);
+    MultiplyBy2(SixteenR4); MultiplyBy2(SixteenR4); 
+    MultiplyBy2(SixteenR4); MultiplyBy2(SixteenR4);    
+    BigNumber *FourR2 = CloneBigNumber(R2);
+    MultiplyBy2(FourR2); MultiplyBy2(FourR2);
+    
+    BigNumber *Term1 = Sum(SixteenR4, FourR2);
+    BigNumber *Term2 = Sum(Term1, W_minus1);
+    BigNumber *Term3 = Subtract(Term2, W_1);
+    BigNumber *Term4 = Sum(Term3, W_0);
+    
+    BigNumber *NumeratorR3 = Subtract(Term4, W_minus2);
+    DivideBy6(NumeratorR3); 
+    BigNumber *R3 = NumeratorR3;
+
+    // 5. R1 = (W_1 - W_minus1)/2 - R3
+    BigNumber *SubW1_Wminus1 = Subtract(W_1, W_minus1);
+    DivideBy2(SubW1_Wminus1);
+    
+    BigNumber *R1 = Subtract(SubW1_Wminus1, R3);
+
+    FreeMemory(SumW1_Wminus1); 
+    FreeMemory(HalfSum_Minus_R0);
+    FreeMemory(SixteenR4); 
+    FreeMemory(FourR2);
+    FreeMemory(Term1); 
+    FreeMemory(Term2); 
+    FreeMemory(Term3); 
+    FreeMemory(Term4); 
+    FreeMemory(SubW1_Wminus1); 
+    
+    FreeMemory(W_1); 
+    FreeMemory(W_minus1); 
+    FreeMemory(W_minus2);
+
+    // PHASE 5: RECOMPOSITION (Shift and Add)
+    // Result = R4*10^(4k) + R3*10^(3k) + R2*10^(2k) + R1*10^k + R0
+   
+    ShiftRightNPositions(R4, 4 * k);
+    ShiftRightNPositions(R3, 3 * k);
+    ShiftRightNPositions(R2, 2 * k);
+    ShiftRightNPositions(R1, k);
+
+    BigNumber *Res1 = Sum(R0, R1);
+    BigNumber *Res2 = Sum(Res1, R2);
+    BigNumber *Res3 = Sum(Res2, R3);
+    BigNumber *FinalResult = Sum(Res3, R4);
+
+    CleanTrailingZeros(FinalResult);
+
+    FreeMemory(R0); FreeMemory(R1); FreeMemory(R2); FreeMemory(R3); FreeMemory(R4);
+    FreeMemory(Res1); FreeMemory(Res2); FreeMemory(Res3);
+
+    return FinalResult;
+}
+
 BigNumber* Multiply(BigNumber* Number1,BigNumber*Number2)
 {
     if (Number1 == NULL || Number2 == NULL) return NULL;  //Consider Edge Cases such as NULL,Multiply by +-1, 0
@@ -1329,25 +2154,49 @@ BigNumber* Multiply(BigNumber* Number1,BigNumber*Number2)
     BigNumber *NegativeOne=Init("-1");
     if(IsEqual(Number2,NegativeOne)==true)
       {
-        BigNumber *CloneNumber2=CloneBigNumber(Number2);
-        MultiplyByNegativeOne(CloneNumber2);
-        return CloneNumber2;
+        BigNumber *CloneNumber1=CloneBigNumber(Number1);
+        MultiplyByNegativeOne(CloneNumber1);
+        FreeMemory(NegativeOne);
+        return CloneNumber1;
       }
     if(IsEqual(Number1,NegativeOne)==true)
       {
-         BigNumber *CloneNumber1=CloneBigNumber(Number1);
-         MultiplyByNegativeOne(CloneNumber1);
-         return CloneNumber1;
+         BigNumber *CloneNumber2=CloneBigNumber(Number2);
+         MultiplyByNegativeOne(CloneNumber2);
+         FreeMemory(NegativeOne);
+         return CloneNumber2;
       }
     FreeMemory(NegativeOne);
 
+    unsigned int MaxDigits=(Number1->NrOfDigits > Number2->NrOfDigits) ? Number1->NrOfDigits : Number2->NrOfDigits; 
+    unsigned short int NumberOfIterations=0;
+    
+    if (MaxDigits>500000) 
+    {
+      NumberOfIterations = 2; // 25 New Threads for astronomical numbers
+    } else if (MaxDigits > 50000) 
+    {
+      NumberOfIterations = 1; // 5 New Threads for heavy numbers
+    } else 
+    {
+      NumberOfIterations = 0; // 0 New Threads (Sequential) for standard massive numbers
+    }
+
     if(IsEqual(Number1,Number2)==true)
       {
-          BigNumber *Result=KaratsubaSquaredMultiThreaded(Number1,3);
-          return Result;
+        BigNumber *Result=ToomCook3WaySquareMultiThreaded(Number1,NumberOfIterations);
+        return Result;
       }
 
-    BigNumber *Result=KaratsubaMultiThreaded(Number1,Number2,3);
+    BigNumber *Result=ToomCook3WayMultiThreaded(Number1,Number2,NumberOfIterations);
+    
+    // Toom-Cook and Karatsuba evaluate only the absolute values of the magnitudes
+    // Positive * Negative = Negative and  Negative * Negative = Positive
+    if(Result != NULL && !(Result->NrOfDigits == 1 && Result->Digits[0] == '0')) //If one of the numbers is negative ,change sign
+    {
+      Result->IsNegative = Number1->IsNegative ^ Number2->IsNegative;
+    }
+
     return Result;
 }
 
@@ -1483,37 +2332,6 @@ BigNumber* FromSignedIntegerToBigNum(int Number)
     
     Digits[NrOfDigits] = '\0';
     return PrivateConstructor(Digits, NrOfDigits, IsNegative);
-}
-
-void MultiplyBy2(BigNumber* Number) //Modifies the NUMBER in MEMORY, DOENST RETURN A NEW ONE
-{
-    if (Number == NULL || Number->NrOfDigits == 0) return;
-
-    //An O(NrOfDigits) algoritm to quickly find Number*2 in memory without any Auxiliary Memory and No Garbage Collection
-    //Very Usefull in Newton-Raphson iterations for Inverse
-
-    unsigned int carry = 0;
-    for (unsigned int i = 0; i < Number->NrOfDigits; i++)
-    {
-        unsigned int current_digit = Number->Digits[i] - '0';
-        unsigned int doubled = (current_digit << 1) + carry; // digit * 2 + carry
-        
-        Number->Digits[i] = (doubled % 10) + '0';
-        carry = doubled / 10;
-    }
-
-    if (carry > 0)
-    {
-        Number->NrOfDigits++;
-        Number->Digits = realloc(Number->Digits, Number->NrOfDigits + 1);
-        if (Number->Digits == NULL)
-        {
-            perror("Memory reallocation failed in MultiplyBy2");
-            exit(-1);
-        }
-        Number->Digits[Number->NrOfDigits - 1] = carry + '0';
-        Number->Digits[Number->NrOfDigits] = '\0';
-    }
 }
 
 void DivizionBy2(BigNumber *Number) //Modifies the NUMBER in MEMORY, DOENST RETURN A NEW ONE
@@ -1818,7 +2636,7 @@ BigNumber* Modulo(BigNumber * Dividend, BigNumber *Modulus)  // Divident mod Mod
     
     BigNumber* One=Init("1");
     BigNumber* Two=Init("2");
-    if(IsEqual(Modulus,Two)==true)    //Considering a mod 2 as an edge case that can be found in O(1)
+    if(IsEqual(Modulus,Two)==true)    
       {
         FreeMemory(Two);
         if(IsOdd(Dividend)==true)
@@ -1948,7 +2766,7 @@ BigNumber* Power(BigNumber*Number,BigNumber *Power) //Return a new BIGINT equal 
                   FreeMemory(NewY);
                 }
               
-              BigNumber *SquaredNumber=StandardSquare(CopyNumber);
+              BigNumber *SquaredNumber=KaratsubaSquaredMultiThreaded(CopyNumber,3);
               SwapNumbersInMemory(&SquaredNumber,&CopyNumber);  //x=x^2
               FreeMemory(SquaredNumber);
 
@@ -1966,6 +2784,8 @@ BigNumber* Power(BigNumber*Number,BigNumber *Power) //Return a new BIGINT equal 
       }
 }
 
+BigFloatNumber* Ln(BigFloatNumber* Number,unsigned int precision);
+BigFloatNumber* Exp(BigFloatNumber* Number,unsigned int precision);
 BigFloatNumber* PowerFloat(BigFloatNumber *Number,BigFloatNumber *Power,unsigned int precision) // Number^Power where both Number and Power are real numbers, precision dictates the number of digit if power is not a natural number
 {
    if(Number==NULL ||Power==NULL || Number->Mantissa==NULL || Power->Mantissa==NULL)
@@ -1988,14 +2808,15 @@ BigFloatNumber* PowerFloat(BigFloatNumber *Number,BigFloatNumber *Power,unsigned
         return One;
       }
 
-    BigFloatNumber* CopyNumber=CloneBigNumberFloat(Number);
-    BigFloatNumber* CopyPower=CloneBigNumberFloat(Power);
     if(Power->Exponent>=0) //If Power is an integer use Exponentiation by squaring as above with the caveat that if Power is negative do x^-n= (1/x)^n
       {
           // Implementation of a GuardBuffer in order to manage the increasing decimal digits induced by the multiplication operation
           // GuardBuffer wil be used in Exponentiation By Squaring at each itteration of the while loop 
           unsigned int GuardBuffer= Power->Mantissa->NrOfDigits + 1;  //G= floor(log_10(Power))+ 2= Power->NrOfDigits+1
           unsigned int InternalPrecision = precision + GuardBuffer;
+   
+          BigFloatNumber* CopyNumber=CloneBigNumberFloat(Number);
+          BigFloatNumber* CopyPower=CloneBigNumberFloat(Power);
 
           ShiftRightNPositions(CopyPower->Mantissa, CopyPower->Exponent);
           CopyPower->Exponent = 0;
@@ -2040,12 +2861,18 @@ BigFloatNumber* PowerFloat(BigFloatNumber *Number,BigFloatNumber *Power,unsigned
       }
     else
       {
-        //TO DO: IMPLEMENT EXPONENTIATION WHEN POWER IS IN R\Z
-        FreeMemoryFloat(CopyNumber);
-        FreeMemoryFloat(CopyPower);
+        // Number^Power = e^(Power*Ln(Number))
+        BigFloatNumber* LnNumber=Ln(Number,precision);
+        BigFloatNumber* ArgumentExp=MultiplyFloat(LnNumber,Power);
+        BigFloatNumber* Result=Exp(ArgumentExp,precision);
+        
         FreeMemoryFloat(Zero);
         FreeMemoryFloat(One);
-        return NULL;
+        FreeMemoryFloat(LnNumber);
+        FreeMemoryFloat(ArgumentExp);
+
+        RoundFloat(Result,precision);
+        return Result;
       }
 } 
 
@@ -2074,10 +2901,10 @@ BigFloatNumber* SquareRootInitialGuess(BigFloatNumber* Number)
         return NULL;
     }
 
-    // 1. Calculate the true mathematical base-10 magnitude
+    // Calculate the true base-10 magnitude
     long int E_total = (long int)Number->Mantissa->NrOfDigits - 1 + Number->Exponent;
     
-    // 2. Safely handle integer division for negative numbers to mimic mathematical floor()
+    // Safely handle integer division for negative numbers to mimic mathematical floor()
     long int E_root;
     bool is_odd = (E_total % 2 != 0);
 
@@ -2091,7 +2918,7 @@ BigFloatNumber* SquareRootInitialGuess(BigFloatNumber* Number)
         else        E_root = E_total / 2;
     }
 
-    // 3. Extract the top 1 or 2 digits based on parity
+    // Extract the top 1 or 2 digits based on parity
     unsigned int TopDigits = Number->Mantissa->Digits[Number->Mantissa->NrOfDigits - 1] - '0';
     
     if (is_odd) 
@@ -2122,7 +2949,7 @@ BigFloatNumber* SquareRootInitialGuess(BigFloatNumber* Number)
     {
         E_root += 1;
     }
-    // 5. Construct the 1-digit Mantissa
+    // Construct the 1-digit Mantissa
     char* GuessString = malloc(2 * sizeof(char));
     if (GuessString == NULL) return NULL;
     
@@ -2131,7 +2958,6 @@ BigFloatNumber* SquareRootInitialGuess(BigFloatNumber* Number)
     
     BigNumber* MantissaGuess = PrivateConstructor(GuessString, 1, false);
 
-    // 6. Return the fully packaged BigFloat
     return PrivateConstructorFloat(MantissaGuess, E_root);
 }
 
@@ -2247,6 +3073,7 @@ BigFloatNumber *InverseSquareRoot(BigFloatNumber* Number, unsigned int precision
     return Y;
 }
 
+
 char *ToString(BigNumber *Number)
 {
    char *String;
@@ -2343,4 +3170,549 @@ void PrintBigFloatNumber(BigFloatNumber *Number)
           }
  
      }
+}
+
+BigFloatNumber* CalculatePiGaussLegendre(unsigned int precision) //Calculates precision digits of pi using Gauss Legendre Algorithm
+{
+    //Precision Setting
+    unsigned int GuardBuffer=10;
+    unsigned int InternalPrecision = precision + GuardBuffer;
+    unsigned int CurrentPrecision =1;
+    unsigned int IterationCount = 0;
+
+    //Initial Value Setting
+    BigFloatNumber* A_Current=InitFloat("1");
+    BigFloatNumber* Two=InitFloat("2");
+    BigFloatNumber* T_Current=InitFloat("0.25");
+    BigFloatNumber* B_Current=InverseSquareRoot(Two,InternalPrecision);
+    
+      do  //Forces to do at least one Gauss-Legendre Iteration
+       {
+          CurrentPrecision*=2;  //Quadratic Convergence
+
+          BigFloatNumber *A_Next=SumFloat(A_Current,B_Current);
+          DivizionBy2Float(A_Next);
+          RoundFloat(A_Next, InternalPrecision);
+
+          BigFloatNumber* AB=MultiplyFloat(A_Current,B_Current);
+          BigFloatNumber* B_Next=SquareRoot(AB,InternalPrecision);
+          RoundFloat(B_Next, InternalPrecision);
+
+          BigFloatNumber* DeltaA=SubtractFloat(A_Current,A_Next);
+          BigFloatNumber* DeltaASquared=MultiplyFloat(DeltaA,DeltaA);
+          for(unsigned int i=0;i<IterationCount;i++)
+            {
+              MultiplyBy2(DeltaASquared->Mantissa);
+            }
+          CompressFloatInPlace(DeltaASquared);
+          RoundFloat(DeltaASquared, InternalPrecision);
+          BigFloatNumber* T_Next=SubtractFloat(T_Current,DeltaASquared);
+
+          FreeMemoryFloat(DeltaA);
+          FreeMemoryFloat(DeltaASquared);
+          FreeMemoryFloat(AB);
+
+          FreeMemoryFloat(A_Current);A_Current=A_Next;
+          FreeMemoryFloat(B_Current);B_Current=B_Next;
+          FreeMemoryFloat(T_Current);T_Current=T_Next;    
+
+          IterationCount++;
+       }while(CurrentPrecision<InternalPrecision);
+
+    BigFloatNumber *SumAB=SumFloat(A_Current,B_Current);
+    BigFloatNumber *SumABSquared=MultiplyFloat(SumAB,SumAB);
+
+    MultiplyBy2(T_Current->Mantissa);
+    MultiplyBy2(T_Current->Mantissa);
+    CompressFloatInPlace(T_Current);
+
+    BigFloatNumber *InverseT=Inverse(T_Current,InternalPrecision);
+    BigFloatNumber *PI=MultiplyFloat(InverseT,SumABSquared);
+
+    FreeMemoryFloat(SumAB);
+    FreeMemoryFloat(SumABSquared);
+    FreeMemoryFloat(InverseT);
+    FreeMemoryFloat(Two);
+    FreeMemoryFloat(A_Current);
+    FreeMemoryFloat(B_Current);
+    FreeMemoryFloat(T_Current);
+
+    RoundFloat(PI,precision);
+    return PI;
+}
+
+// AGM Methods For Finding Ln(10) and Ln(Number)
+// AGM(A0,B0) :=  A_(N+1)=(A_N+B_N)/2 and B_(N+1)=SQRT(A_N*B_N), In the limit as N-> A_N=B_N :=AGM(A0,B0)
+// LN(S)~Pi/(2*AGM(1,4/S) where S should be a massive number
+// S is a BigFloat => S=x*10^M |ln()  => Ln(S)=Ln(x)+M*Ln(10) =>Ln(x)=Ln(S)-m*Ln(10)
+// For finding Ln(x) we need to scale X with M zeros of precision 
+BigFloatNumber* AGM(BigFloatNumber* A, BigFloatNumber* B,unsigned int precision)
+{
+    unsigned int GuardBuffer=10;
+    unsigned int InternalPrecision = precision + GuardBuffer;
+    bool HasConverged=false;
+
+    BigFloatNumber *A0=CloneBigNumberFloat(A);
+    BigFloatNumber *B0=CloneBigNumberFloat(B);
+
+    while(HasConverged==false)
+    {
+      BigFloatNumber* ProductA0B0=MultiplyFloat(A0,B0);
+      BigFloatNumber* B1=SquareRoot(ProductA0B0,InternalPrecision);
+      RoundFloat(B1, InternalPrecision);
+
+      BigFloatNumber* A1=SumFloat(A0,B0);
+      DivizionBy2Float(A1);
+      RoundFloat(A1, InternalPrecision);
+
+      BigFloatNumber* DeltaA = SubtractFloat(A0,A1);
+      if (DeltaA->Mantissa->NrOfDigits == 1 && DeltaA->Mantissa->Digits[0] == '0') 
+        {
+            HasConverged=true; // Perfect 0
+        }
+      else
+        {
+          long int diff_magnitude = (long int)DeltaA->Mantissa->NrOfDigits - 1 + DeltaA->Exponent;
+            if (diff_magnitude <= -(long int)InternalPrecision) 
+            {
+                 HasConverged=true; //Good Enough Precision
+            }
+        }
+
+      FreeMemoryFloat(ProductA0B0);
+      FreeMemoryFloat(DeltaA);
+      FreeMemoryFloat(A0);A0=A1;
+      FreeMemoryFloat(B0);B0=B1;
+
+    }
+    
+    FreeMemoryFloat(B0);
+    return A0; //A0 and B0 is equal up to InternalPrecision digits
+}
+
+BigFloatNumber* GenerateLn10Constant(BigFloatNumber* Global_Pi, unsigned int precision)
+{
+    unsigned int InternalPrecision = precision + 10;
+    unsigned int m = (precision / 2) + 5;
+    
+    // O(1) construction of B0 = 4 / 10^(m+1)
+    BigNumber* FourMantissa = Init("4");
+    BigFloatNumber* B0 = PrivateConstructorFloat(FourMantissa, -(long int)(m + 1));
+
+    // Run the AGM
+    BigFloatNumber* A0 = InitFloat("1");
+    BigFloatNumber* AgmResult = AGM(A0, B0, InternalPrecision);
+
+    // Calculate Ln(S) = Pi / (2 * AGM)
+    BigFloatNumber* Pi_Over_2 = CloneBigNumberFloat(Global_Pi);
+    DivizionBy2Float(Pi_Over_2);
+    
+    BigFloatNumber* InverseAgm = Inverse(AgmResult, InternalPrecision);
+    BigFloatNumber* Ln_S = MultiplyFloat(Pi_Over_2, InverseAgm);
+
+    // Ln(10) = Ln(S) / (m+1)
+    BigNumber* DivisorInt = FromUnsignedIntegerToBigNum(m + 1);
+    BigFloatNumber* DivisorFloat = PrivateConstructorFloat(DivisorInt, 0);
+    
+    BigFloatNumber* InverseDivisor = Inverse(DivisorFloat, InternalPrecision);
+    BigFloatNumber* Ln10 = MultiplyFloat(Ln_S, InverseDivisor); 
+    RoundFloat(Ln10, precision);
+
+    FreeMemoryFloat(B0); 
+    FreeMemoryFloat(A0); 
+    FreeMemoryFloat(AgmResult);
+    FreeMemoryFloat(Pi_Over_2); 
+    FreeMemoryFloat(InverseAgm);
+    FreeMemoryFloat(Ln_S); 
+    FreeMemoryFloat(DivisorFloat); 
+    FreeMemoryFloat(InverseDivisor);
+
+    return Ln10;
+}
+
+BigFloatNumber* Ln(BigFloatNumber* X, unsigned int precision)
+{
+    if(X==NULL ||INTERNAL_GLOBAL_PI==NULL || INTERNAL_GLOBAL_LN10==NULL) return NULL;
+
+    if (IsNegative(X->Mantissa) || (X->Mantissa->NrOfDigits == 1 && X->Mantissa->Digits[0] == '0'))
+    {
+        printf("Mathematical Error: ln(x) is undefined for x <= 0\n");
+        return NULL;
+    }
+
+    //Ln(1) = 0
+    BigFloatNumber* One = InitFloat("1");
+    if (IsEqual(X->Mantissa, One->Mantissa) && X->Exponent == 0)
+    {
+        FreeMemoryFloat(One);
+        return InitFloat("0");
+    }
+    FreeMemoryFloat(One);
+
+    // s only needs to reach 10^(precision / 2) to satisfy the error bounds
+    long int target_magnitude = (precision / 2) + 5;
+    long int current_magnitude = (long int)X->Mantissa->NrOfDigits - 1 + X->Exponent;
+    
+    long int m = target_magnitude - current_magnitude;
+    if (m < 0) m = 0; // X is already massive enough!
+
+    // THE PRECISION FIX & CANCELLATION GUARD
+    // We boost internal precision by 'm' so RoundFloat doesn't delete the significant digits!
+    unsigned int CancellationGuard = 0;
+    long int temp_m = m;
+    while(temp_m > 0) { CancellationGuard++; temp_m /= 10; }
+    
+    unsigned int DecimalPlacesNeeded = precision + m + 10 + CancellationGuard;
+
+    // FAST B0 SHIFT TRICK (Optimization 2)
+    // Instead of inverting a massive S, we invert X and shift the exponent!
+    BigFloatNumber* B0 = Inverse(X, DecimalPlacesNeeded);
+    MultiplyBy2(B0->Mantissa);MultiplyBy2(B0->Mantissa);
+    CompressFloatInPlace(B0);
+    
+    B0->Exponent -= m; // Scales by 10^-m instantly!
+    RoundFloat(B0, DecimalPlacesNeeded);
+
+    // Run AGM
+    BigFloatNumber* A0 = InitFloat("1");
+    BigFloatNumber* AgmResult = AGM(A0, B0, DecimalPlacesNeeded);
+
+    // Ln(S) = (Pi / 2) * (1 / AGM)
+    BigFloatNumber* Pi_Over_2 = CloneBigNumberFloat(INTERNAL_GLOBAL_PI);
+    DivizionBy2Float(Pi_Over_2);
+    
+    BigFloatNumber* InverseAgm = Inverse(AgmResult, DecimalPlacesNeeded);
+    BigFloatNumber* Ln_S = MultiplyFloat(Pi_Over_2, InverseAgm);
+
+    // Un-scale: Ln(X) = Ln(S) - (m * Ln(10))
+    BigFloatNumber* Result = NULL;
+    if (m > 0) 
+    {
+        BigNumber* M_Int = FromUnsignedIntegerToBigNum((unsigned int)m);
+        BigFloatNumber* M_Float = PrivateConstructorFloat(M_Int, 0);
+        
+        BigFloatNumber* SubtractionTerm = MultiplyFloat(M_Float, INTERNAL_GLOBAL_LN10);
+        Result = SubtractFloat(Ln_S, SubtractionTerm);
+        
+        FreeMemoryFloat(M_Float);
+        FreeMemoryFloat(SubtractionTerm);
+    }
+    else 
+    {
+        Result = CloneBigNumberFloat(Ln_S); // No un-scaling needed!
+    }
+
+    RoundFloat(Result, precision);
+
+    FreeMemoryFloat(B0); 
+    FreeMemoryFloat(A0);
+    FreeMemoryFloat(AgmResult);
+    FreeMemoryFloat(Pi_Over_2);
+    FreeMemoryFloat(InverseAgm);
+    FreeMemoryFloat(Ln_S); 
+
+    return Result;
+}
+
+long int BigNumToLong(BigNumber* Number)
+{
+    long int value = 0;
+    long int multiplier = 1;
+    // Extract up to 15 digits (safe for 64-bit signed integers)
+    for(unsigned int i = 0; i < Number->NrOfDigits && i < 15; i++)
+    {
+        value += (Number->Digits[i] - '0') * multiplier;
+        multiplier *= 10;
+    }
+    if (Number->IsNegative) value = -value;
+    return value;
+}
+
+#if defined(__SIZEOF_INT128__) && defined(__GNUC__)
+    #include <quadmath.h> // Required for 128-bit sprintf
+#endif
+
+BigFloatNumber* ExpInitialGuess(BigFloatNumber* Y)
+{
+    unsigned int len = Y->Mantissa->NrOfDigits;
+
+// ==============================================================================
+// 128-BIT ARCHITECTURE SUPPORT (Quadruple Precision Float)
+// ==============================================================================
+#if defined(__SIZEOF_INT128__) && defined(__GNUC__)
+    
+    __float128 y_hw = 0.0;
+    __float128 place = 1.0;
+    unsigned int DigitsToExtract = (len > 34) ? 34 : len;
+
+    for (unsigned int i = 0; i < DigitsToExtract; i++) {
+        unsigned int index = len - 1 - i;
+        y_hw += (__float128)(Y->Mantissa->Digits[index] - '0') / place;
+        place *= 10.0;
+    }
+
+    long int hardware_exponent = Y->Exponent + (long int)len - 1;
+    if (hardware_exponent > 0) {
+        for (long int i = 0; i < hardware_exponent; i++) y_hw *= 10.0;
+    } else if (hardware_exponent < 0) {
+        for (long int i = 0; i < -hardware_exponent; i++) y_hw /= 10.0;
+    }
+
+    __float128 hw_result = 1.0; 
+    __float128 term = 1.0;
+    for (int i = 1; i <= 46; i++) {
+        term = (term * y_hw) / (__float128)i;
+        hw_result += term;
+    }
+
+    char buffer[128];
+    quadmath_snprintf(buffer, sizeof(buffer), "%.33Qf", hw_result);
+    return InitFloat(buffer);
+
+// ==============================================================================
+// 64-BIT ARCHITECTURE (Extended Precision / Long Double)
+// ==============================================================================
+#elif UINTPTR_MAX == 0xffffffffffffffff || defined(_WIN64) || defined(__x86_64__) || defined(__aarch64__)
+    
+    long double y_hw = 0.0;
+    long double place = 1.0;
+    unsigned int DigitsToExtract = (len > 18) ? 18 : len;
+
+    for (unsigned int i = 0; i < DigitsToExtract; i++) {
+        unsigned int index = len - 1 - i;
+        y_hw += (long double)(Y->Mantissa->Digits[index] - '0') / place;
+        place *= 10.0;
+    }
+
+    long int hardware_exponent = Y->Exponent + (long int)len - 1;
+    if (hardware_exponent > 0) {
+        for (long int i = 0; i < hardware_exponent; i++) y_hw *= 10.0;
+    } else if (hardware_exponent < 0) {
+        for (long int i = 0; i < -hardware_exponent; i++) y_hw /= 10.0;
+    }
+
+    long double hw_result = 1.0; 
+    long double term = 1.0;
+    for (int i = 1; i <= 29; i++) {
+        term = (term * y_hw) / (long double)i;
+        hw_result += term;
+    }
+
+    char buffer[64];
+    sprintf(buffer, "%.18Lf", hw_result);
+    return InitFloat(buffer);
+
+// ==============================================================================
+// 32-BIT ARCHITECTURE (Standard Double)
+// ==============================================================================
+#else
+
+    double y_hw = 0.0;
+    double place = 1.0;
+    unsigned int DigitsToExtract = (len > 14) ? 14 : len;
+
+    for (unsigned int i = 0; i < DigitsToExtract; i++) {
+        unsigned int index = len - 1 - i;
+        y_hw += (double)(Y->Mantissa->Digits[index] - '0') / place;
+        place *= 10.0;
+    }
+
+    long int hardware_exponent = Y->Exponent + (long int)len - 1;
+    if (hardware_exponent > 0) {
+        for (long int i = 0; i < hardware_exponent; i++) y_hw *= 10.0;
+    } else if (hardware_exponent < 0) {
+        for (long int i = 0; i < -hardware_exponent; i++) y_hw /= 10.0;
+    }
+
+    double hw_result = 1.0; 
+    double term = 1.0;
+    for (int i = 1; i <= 24; i++) {
+        term = (term * y_hw) / (double)i;
+        hw_result += term;
+    }
+
+    char buffer[64];
+    sprintf(buffer, "%.14f", hw_result);
+    return InitFloat(buffer);
+
+#endif
+// ==============================================================================
+}
+
+BigFloatNumber* Exp(BigFloatNumber* X, unsigned int precision)
+{
+    if(X == NULL || INTERNAL_GLOBAL_PI == NULL || INTERNAL_GLOBAL_LN10 == NULL) return NULL;
+
+    // Fast-path: e^0 = 1
+    BigFloatNumber* Zero = InitFloat("0");
+    if(IsEqual(X->Mantissa, Zero->Mantissa) && X->Exponent == 0)
+    {
+        FreeMemoryFloat(Zero);
+        return InitFloat("1");
+    }
+    FreeMemoryFloat(Zero);
+
+    // Negative exponent handler: e^-x = 1 / e^x
+    bool IsNegativeExp = X->Mantissa->IsNegative;
+    if (IsNegativeExp) MultiplyByNegativeOne(X->Mantissa);
+
+    // ==============================================================================
+    // ARGUMENT REDUCTION: X = K * Ln(10) + Y
+    // ==============================================================================
+    long int X_Magnitude = (long int)X->Mantissa->NrOfDigits - 1 + X->Exponent;
+    if (X_Magnitude < 0) X_Magnitude = 0;
+    
+    // Boost precision during reduction to prevent cancellation!
+    unsigned int ReductionPrecision = precision + X_Magnitude + 10;
+
+    BigFloatNumber* R = DivizionSetPrecision(X, INTERNAL_GLOBAL_LN10, ReductionPrecision);
+    BigNumber* K_Int = Floor(R);
+    BigFloatNumber* K_Float = PrivateConstructorFloat(CloneBigNumber(K_Int), 0);
+
+    BigFloatNumber* K_Times_Ln10 = MultiplyFloat(K_Float, INTERNAL_GLOBAL_LN10);
+    BigFloatNumber* Y = SubtractFloat(X, K_Times_Ln10);
+    RoundFloat(Y, precision + 10); 
+
+    // ==============================================================================
+    // ARCHITECTURE-AWARE PRECISION SETUP
+    // ==============================================================================
+    unsigned int InternalPrecision = precision + 10;
+    unsigned int CurrentPrecision = 14; // Default to 32BIT
+
+    #if defined(__SIZEOF_INT128__) && defined(__GNUC__)
+        CurrentPrecision = 33;          // ON 128BIT SUPPORT
+    #elif UINTPTR_MAX == 0xffffffffffffffff || defined(_WIN64) || defined(__x86_64__) || defined(__aarch64__)
+        CurrentPrecision = 18;          // ON 64BIT 
+    #endif
+
+    BigFloatNumber* E_N = ExpInitialGuess(Y); 
+
+    // If the hardware guess is already perfect, we skip Newton-Raphson entirely!
+    if(CurrentPrecision >= InternalPrecision)
+    {
+        RoundFloat(E_N, InternalPrecision);
+    }
+    else
+    {
+        // ==============================================================================
+        // NEWTON-RAPHSON LOOP: E_{n+1} = E_n + E_n * (Y - Ln(E_n))
+        // ==============================================================================
+        while (CurrentPrecision < InternalPrecision)
+        {
+            unsigned int StepPrecision = (CurrentPrecision * 2) + 5;
+            if (StepPrecision > InternalPrecision) StepPrecision = InternalPrecision;
+
+            BigFloatNumber* Ln_En = Ln(E_N,StepPrecision);
+            BigFloatNumber* Difference = SubtractFloat(Y, Ln_En);
+            BigFloatNumber* Product = MultiplyFloat(E_N, Difference);
+            BigFloatNumber* NEXT_EN = SumFloat(E_N, Product);
+            RoundFloat(NEXT_EN, StepPrecision);
+
+            FreeMemoryFloat(Ln_En);
+            FreeMemoryFloat(Difference);
+            FreeMemoryFloat(Product);
+            FreeMemoryFloat(E_N);
+
+            E_N = NEXT_EN;
+            CurrentPrecision *= 2;
+        }
+    }
+
+    // ==============================================================================
+    // O(1) BASE-10 SCALING: e^X = e^Y * 10^K
+    // ==============================================================================
+    long int K_Value = BigNumToLong(K_Int);
+    E_N->Exponent += K_Value; 
+
+    RoundFloat(E_N, precision);
+
+    // If the original request was e^-x, invert the final result
+    if (IsNegativeExp)
+    {
+        BigFloatNumber* FinalResult = Inverse(E_N, precision);
+        FreeMemoryFloat(E_N);
+        E_N = FinalResult;
+        
+        MultiplyByNegativeOne(X->Mantissa); // Revert X back to its original state
+    }
+
+    // Cleanup
+    FreeMemoryFloat(R); 
+    FreeMemory(K_Int); 
+    FreeMemoryFloat(K_Float);
+    FreeMemoryFloat(K_Times_Ln10); 
+    FreeMemoryFloat(Y); 
+
+    RoundFloat(E_N,precision);
+    return E_N;
+}
+
+
+void InitializeBigNumberSupport(unsigned int precision)
+{
+    // If the user calls it twice, free the old memory first to prevent leaks!
+    if (INTERNAL_GLOBAL_PI != NULL) FreeMemoryFloat(INTERNAL_GLOBAL_PI);
+    if (INTERNAL_GLOBAL_LN10 != NULL) FreeMemoryFloat(INTERNAL_GLOBAL_LN10);
+
+    // We calculate the constants to slightly higher precision to absorb truncation noise
+    INTERNAL_GLOBAL_PRECISION = precision + 10; 
+
+    printf("Initializing BigNumber Environment (Precision: %u digits)...\n", INTERNAL_GLOBAL_PRECISION);
+
+    INTERNAL_GLOBAL_PI = CalculatePiGaussLegendre(INTERNAL_GLOBAL_PRECISION);
+    INTERNAL_GLOBAL_LN10 = GenerateLn10Constant(INTERNAL_GLOBAL_PI, INTERNAL_GLOBAL_PRECISION);
+
+    printf("BigNumber Environment Ready!\n");
+}
+
+void InitializeBigNumberLibrary(unsigned int precision)
+{
+    if (INTERNAL_GLOBAL_PI != NULL) FreeMemoryFloat(INTERNAL_GLOBAL_PI);
+    if (INTERNAL_GLOBAL_LN10 != NULL) FreeMemoryFloat(INTERNAL_GLOBAL_LN10);
+
+    INTERNAL_GLOBAL_PRECISION = precision + 10; 
+
+    printf("Initializing BigNumber Environment (MAX Precision: %u digits)...\n", INTERNAL_GLOBAL_PRECISION);
+
+    INTERNAL_GLOBAL_PI = CalculatePiGaussLegendre(INTERNAL_GLOBAL_PRECISION);
+    INTERNAL_GLOBAL_LN10 = GenerateLn10Constant(INTERNAL_GLOBAL_PI, INTERNAL_GLOBAL_PRECISION);
+
+    printf("BigNumber Environment Ready!\n");
+}
+
+void DistroyBigNumberLibrary()
+{
+    if (INTERNAL_GLOBAL_PI != NULL) {
+        FreeMemoryFloat(INTERNAL_GLOBAL_PI);
+        INTERNAL_GLOBAL_PI = NULL;
+    }
+    if (INTERNAL_GLOBAL_LN10 != NULL) {
+        FreeMemoryFloat(INTERNAL_GLOBAL_LN10);
+        INTERNAL_GLOBAL_LN10 = NULL;
+    }
+    INTERNAL_GLOBAL_PRECISION = 0;
+}
+
+BigFloatNumber* GetConstantPi(unsigned int precision)
+{
+    if (INTERNAL_GLOBAL_PI == NULL) {
+        printf("Error: BigNumber Support not initialized!\n");
+        return NULL;
+    }
+    
+    BigFloatNumber* Pi=CloneBigNumberFloat(INTERNAL_GLOBAL_PI);
+    RoundFloat(Pi,precision);
+    return Pi;
+}
+
+BigFloatNumber* GetConstantLn10(unsigned int precision)
+{
+    if (INTERNAL_GLOBAL_LN10 == NULL) {
+        printf("Error: BigNumber Support not initialized!\n");
+        return NULL;
+    }
+
+    BigFloatNumber* LN10=CloneBigNumberFloat(INTERNAL_GLOBAL_LN10);
+    RoundFloat(LN10,precision);
+    return LN10;
 }

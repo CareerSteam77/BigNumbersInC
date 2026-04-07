@@ -15,6 +15,10 @@ typedef struct{
    int Exponent; 
 }BigFloatNumber;  // BigFloatNumber= significand* 10^Exponent ;Exemple: 123.45= 12345*10^(-2)
 
+
+void InitializeBigNumberLibrary(unsigned int precision);
+void DistroyBigNumberLibrary();
+
 BigFloatNumber *FromBigNumber(BigNumber *Number); //Conversion from Int to Float
 
 BigNumber* Init(char* value); //Construct a BigNum from a string
@@ -35,6 +39,9 @@ BigNumber* FromSignedIntegerToBigNum(int number); //Construct a BigINT from an s
 BigNumber* FromUnsignedInt128ToBigNum(__uint128_t Number); //Construct a BigINT from an uint128
 BigNumber* Factorial(unsigned int Number); //Calculates the factorial of an unsigned integer {(n+1)!=(n+1)*n! ,0!=1}
 
+BigFloatNumber* CalculatePiGaussLegendre(unsigned int precision); //Gauss-Legendre algoritm that calculates pi with precision digits
+BigFloatNumber* GenerateLn10Constant(BigFloatNumber* Global_Pi, unsigned int precision);
+
 BigFloatNumber* MultiplyFloat(BigFloatNumber* Number1,BigFloatNumber *Number2); //Number1*Number2
 BigFloatNumber* SumFloat(BigFloatNumber* Number1,BigFloatNumber* Number2); //Number1+Number2
 BigFloatNumber* SubtractFloat(BigFloatNumber* Number1, BigFloatNumber* Number2); //Number1-Number2
@@ -43,6 +50,11 @@ BigFloatNumber* PowerFloat(BigFloatNumber *Number,BigFloatNumber *Power,unsigned
 BigFloatNumber* SquareRoot(BigFloatNumber* Number, unsigned int precision); //Gives sqrt(Number) with precision digits
 BigFloatNumber* InverseSquareRoot(BigFloatNumber* Number, unsigned int precision);  //Gives 1/sqrt(Number) with precision digits
 BigFloatNumber* Inverse(BigFloatNumber *Number,unsigned int precision);// Gives 1/Number with precision number of digits
+BigFloatNumber* Ln(BigFloatNumber* Number,unsigned int precision);
+BigFloatNumber* Exp(BigFloatNumber* Number,unsigned int precision);
+
+BigFloatNumber* GetConstantPi(unsigned int precision);
+BigFloatNumber* GetConstantLn10(unsigned int precision);
 
 int BigNumberCompare(BigNumber* Number1, BigNumber* Number2); //return 1 if Number1>Number2, -1 if Number1<Number2 , 0 if  Number1==Number2
 int BigNumberCompareAbsoluteValue(BigNumber* Number1, BigNumber* Number2);  //return 1 if |Number1|>|Number2|, -1 if |Number1|<|Number2| , 0 if  |Number1|==|Number2|
@@ -58,6 +70,8 @@ bool IsEqual(BigNumber *Number1,BigNumber *Number2); //returns true if there are
 char *ToString(BigNumber *Number); //Converts a BigNumber to a String
 void PrintBigNumber(BigNumber *Number);  //Prints the BigNumber
 void PrintBigFloatNumber(BigFloatNumber *Number); //Prints the BigFloatNumber
+
+void SwapNumbersInMemory(BigNumber** x,BigNumber** y);
 
 #if defined(__SIZEOF_INT128__) 
     BigNumber* FromUnsignedLongLongToBigNum(unsigned long long int Number); //Construct a BigINT from an unsigned long long int integer #endif

@@ -1,10 +1,16 @@
 #include<stdio.h>
 #include "BigNumber.h"
-int main(int argc,char **argv)
-{
+int main(void)
+{   
     //A test driver for BigNumber;
-    BigNumber* Nr1=Init("121");
-    BigNumber* Nr2=Init("6");
+    InitializeBigNumberLibrary(330);
+    BigFloatNumber *PI=GetConstantPi(300);
+    BigFloatNumber *LN10=GetConstantLn10(300);
+
+    printf("After Initialization CONSTANTS\n");
+
+    BigNumber* Nr1=Init("2");
+    BigNumber* Nr2=Init("400");
     BigNumber* Nr3=Sum(Nr1,Nr2);
     BigNumber* Nr4=Subtract(Nr1,Nr2);
     BigNumber* Nr5=FromUnsignedIntegerToBigNum(2);
@@ -12,10 +18,9 @@ int main(int argc,char **argv)
     BigNumber* Remainder=Init("1");
     BigNumber* Nr7=LongDivision(Nr1,Nr2,Remainder);
     BigNumber *Nr8=Power(Nr1,Nr2);
-    BigNumber* Nr9=Modulo(Nr1,Nr2);
+    BigNumber* Nr9=Modulo(Nr8,Nr2);
 
     printf("After Initialization INT\n");
-
 
     BigFloatNumber* NrF1=InitFloat(pi);
     BigFloatNumber* NrF2=InitFloat(e);
@@ -28,7 +33,8 @@ int main(int argc,char **argv)
     BigFloatNumber* NrF9=SquareRoot(NrF1,30);
     BigFloatNumber* NrF10=InverseSquareRoot(NrF1,30);
     BigFloatNumber* NrF11=Inverse(NrF1,30);
-
+    BigFloatNumber* NrF12=Ln(NrF1,30);
+    BigFloatNumber* NrF13=Exp(NrF1,60);
     printf("After Initialization FLOAT\n");
 
     PrintBigFloatNumber(NrF4);printf("\n");
@@ -42,7 +48,8 @@ int main(int argc,char **argv)
     printf("sqrt(pi):");PrintBigFloatNumber(NrF9);printf("\n");
     printf("1/sqrt(pi):");PrintBigFloatNumber(NrF10);printf("\n");
     printf("1/pi:");PrintBigFloatNumber(NrF11);printf("\n");
-
+    printf("Ln(pi):");PrintBigFloatNumber(NrF12);printf("\n");
+    printf("e^pi:");PrintBigFloatNumber(NrF13);printf("\n");
 
     printf("FirstNumber:");PrintBigNumber(Nr1);printf("Is even?:%d",IsEven(Nr1));printf("\n");
     printf("SecondNumber:");PrintBigNumber(Nr2);printf("Is odd?:%d",IsOdd(Nr2));printf("\n");
@@ -53,10 +60,13 @@ int main(int argc,char **argv)
     printf("Remainder from Divizion:");PrintBigNumber(Remainder);printf("\n");
     printf("Power:");PrintBigNumber(Nr8);printf("NrOfDigits %d",Nr8->NrOfDigits);printf("\n");
     printf("Remainder from Modulo:");PrintBigNumber(Nr9);printf("\n");
-  
+    
     printf("After Printing the Numbers \n");
 
-   // printf("COMPARE:%d \n",BigNumberCompare(Nr1,Nr2));
+    printf("CONSTANTS:\n");
+    PrintBigFloatNumber(PI);printf("\n");
+    PrintBigFloatNumber(LN10);printf("\n");
+    // printf("COMPARE:%d \n",BigNumberCompare(Nr1,Nr2));
     //printf("Product and Sum of :\n%s\nand\n%s\nis\n%s\n%s\n",ToString(Nr1),ToString(Nr2),ToString(Nr3),ToString(Nr5));
     //printf("Factorial of 3000 is :");PrintBigNumber(Factorial(3000));
     FreeMemory(Nr1);
@@ -80,7 +90,15 @@ int main(int argc,char **argv)
     FreeMemoryFloat(NrF9);
     FreeMemoryFloat(NrF10);
     FreeMemoryFloat(NrF11);
+    FreeMemoryFloat(NrF12);
+    FreeMemoryFloat(NrF13);
     
+    FreeMemoryFloat(PI);
+    FreeMemoryFloat(LN10);
+
     printf("After Memory Free\n");
+
+    DistroyBigNumberLibrary();
+    printf("After Destroying Library\n");
     return 0;
 }
