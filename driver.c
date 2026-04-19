@@ -3,9 +3,9 @@
 int main(void)
 {   
     //A test driver for BigNumber;
-    InitializeBigNumberLibrary(330);
-    BigFloatNumber *PI=GetConstantPi(300);
-    BigFloatNumber *LN10=GetConstantLn10(300);
+    InitializeBigNumberLibrary(901);
+    BigFloatNumber *PI=GetConstantPi(900);
+    BigFloatNumber *LN10=GetConstantLn10(900);
 
     printf("After Initialization CONSTANTS\n");
 
@@ -28,7 +28,7 @@ int main(void)
     BigFloatNumber* NrF3=MultiplyFloat(NrF1,NrF2);
     BigFloatNumber* NrF5=SumFloat(NrF1,NrF2);
     BigFloatNumber* NrF6=SubtractFloat(NrF1,NrF2);
-    BigFloatNumber* NrF7=DivizionSetPrecision(NrF1,NrF2,3);
+    BigFloatNumber* NrF7=DivizionSetPrecision(NrF1,NrF2,30);
     BigFloatNumber* NrF8=PowerFloat(NrF1,NrF2,30);
     BigFloatNumber* NrF9=SquareRoot(NrF1,30);
     BigFloatNumber* NrF10=InverseSquareRoot(NrF1,30);

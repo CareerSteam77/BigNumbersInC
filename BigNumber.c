@@ -824,11 +824,15 @@ BigFloatNumber* SumFloat(BigFloatNumber* Number1,BigFloatNumber* Number2)
 
 BigNumber* Subtract(BigNumber* Number1, BigNumber* Number2)
 {
-  if (Number1 == NULL || Number2 == NULL) return NULL;
   //Is equivalent to Number1+MultiplyByNegativeOne(Number2)  a-b == a+ (-b)
-  MultiplyByNegativeOne(Number2); //change the sign
-  BigNumber *Rezult=Sum(Number1,Number2);
-  MultiplyByNegativeOne(Number2); //reverse the change of sign
+  if (Number1 == NULL || Number2 == NULL) return NULL;
+    
+  BigNumber* Clone2 = CloneBigNumber(Number2); //Clone the number in order to make subtraction Thread Safe
+  MultiplyByNegativeOne(Clone2); 
+    
+  BigNumber *Rezult = Sum(Number1, Clone2);
+    
+  FreeMemory(Clone2); 
   return Rezult;
 }
 
@@ -836,9 +840,13 @@ BigFloatNumber* SubtractFloat(BigFloatNumber* Number1, BigFloatNumber* Number2)
 {
   if (Number1 == NULL || Number2 == NULL) return NULL;
   //Is equivalent to Number1+MultiplyByNegativeOne(Number2)  a-b == a+ (-b)
-  MultiplyByNegativeOne(Number2->Mantissa); //change the sign of the second`s Mantissa
-  BigFloatNumber *Rezult=SumFloat(Number1,Number2);
-  MultiplyByNegativeOne(Number2->Mantissa); //reverse the change of sign of the second`s Mantissa
+  
+  BigFloatNumber*Clone2=CloneBigNumberFloat(Number2); //Clone the number in order to make subtraction with floats Thread Safe
+  MultiplyByNegativeOne(Clone2->Mantissa); 
+
+  BigFloatNumber *Rezult=SumFloat(Number1,Clone2);
+  
+  FreeMemoryFloat(Clone2);
   CompressFloatInPlace(Rezult);
   return Rezult;
 }
@@ -955,6 +963,11 @@ BigNumber* StandardMultiply(BigNumber* Number1, BigNumber* Number2) //O(Size(Num
 
 BigNumber* Karatsuba(BigNumber *Number1,BigNumber *Number2)
 {
+    if((Number1->NrOfDigits == 1 && Number1->Digits[0] == '0') || (Number2->NrOfDigits == 1 && Number2->Digits[0] == '0'))
+    {
+        return Init("0");
+    }
+
     if(Number1->NrOfDigits < Karatsuba_BOUND || Number2 ->NrOfDigits < Karatsuba_BOUND)
       return StandardMultiply(Number1,Number2);
  
@@ -1182,7 +1195,10 @@ BigNumber* KaratsubaMultiThreaded(BigNumber* Number1,BigNumber*Number2,unsigned 
 }
 
 BigNumber* KaratsubaSquared(BigNumber*Number)
-{
+{   
+    if (Number->NrOfDigits == 1 && Number->Digits[0] == '0')
+      return Init("0");
+    
     if(Number->NrOfDigits <Karatsuba_BOUND)  //Base Case for Recursion
         return StandardSquare(Number);
 
@@ -1476,6 +1492,11 @@ void SplitToom3(BigNumber* Number, unsigned int k, BigNumber** x0, BigNumber** x
 
 BigNumber *ToomCook3Way(BigNumber* X,BigNumber* Y)
 {
+  if ((X->NrOfDigits == 1 && X->Digits[0] == '0') || (Y->NrOfDigits == 1 && Y->Digits[0] == '0'))
+    {
+        return Init("0");
+    }
+
   if(X->NrOfDigits<ToomCook3Way_BOUND || Y->NrOfDigits<ToomCook3Way_BOUND)
     {
       if (X->NrOfDigits < Karatsuba_BOUND || Y->NrOfDigits < Karatsuba_BOUND) 
@@ -1634,6 +1655,11 @@ void* ToomCook3WayTheadFunc(void *argument)
 }
 BigNumber *ToomCook3WayMultiThreaded(BigNumber* X, BigNumber *Y,unsigned short int NumberOfInterations)
 {
+   if ((X->NrOfDigits == 1 && X->Digits[0] == '0') || (Y->NrOfDigits == 1 && Y->Digits[0] == '0'))
+    {
+        return Init("0");
+    }
+
    if(X->NrOfDigits<ToomCook3Way_BOUND || Y->NrOfDigits<ToomCook3Way_BOUND)
      {
       if (X->NrOfDigits < Karatsuba_BOUND || Y->NrOfDigits < Karatsuba_BOUND) 
@@ -1835,6 +1861,11 @@ BigNumber *ToomCook3WayMultiThreaded(BigNumber* X, BigNumber *Y,unsigned short i
 
 BigNumber *ToomCook3WaySquared(BigNumber *X)
 {
+    if(X->NrOfDigits==1 && X->Digits[0]=='0')
+    {
+      return Init("0");
+    }
+
     if(X->NrOfDigits <ToomCook3Way_BOUND)
        {
         if (X->NrOfDigits < Karatsuba_BOUND ) 
@@ -1961,6 +1992,11 @@ void* ToomCook3WaySquareThreadFunc(void *argument)
 }
 BigNumber *ToomCook3WaySquareMultiThreaded(BigNumber* X, unsigned short int NumberOfIterations)
 {
+    if(X->NrOfDigits==1 && X->Digits[0]=='0')
+    {
+      return Init("0");
+    }
+
     if(X->NrOfDigits < ToomCook3Way_BOUND)
         { 
           if(X->NrOfDigits < Karatsuba_BOUND)
@@ -2394,7 +2430,16 @@ BigNumber* LongDivision(BigNumber* Dividend, BigNumber* Divisor,BigNumber *Remai
 
     if(BigNumberCompareAbsoluteValue(Dividend,Divisor)==-1)   //If Divizor is less than Divident than Quotint is 0 and Remainder= Divizor
        {
-          return Zero;
+        if (Remainder != NULL)
+          {
+            free(Remainder->Digits);
+            Remainder->Digits = malloc(Dividend->NrOfDigits + 1);
+            strcpy(Remainder->Digits, Dividend->Digits);
+            Remainder->NrOfDigits = Dividend->NrOfDigits;
+            Remainder->IsNegative = Dividend->IsNegative;
+          }
+        
+        return Zero;
        }
     
     bool IsDivizorNegative=Divisor->IsNegative;
@@ -2441,6 +2486,7 @@ BigNumber* LongDivision(BigNumber* Dividend, BigNumber* Divisor,BigNumber *Remai
     else
       {
         //If user wants to retain the Remaider we copy its values from CurentRemainder and Deallocate his memory
+        free(Remainder->Digits);
         Remainder->Digits=CurrentRemainder->Digits;
         Remainder->NrOfDigits=CurrentRemainder->NrOfDigits;
         Remainder->IsNegative=CurrentRemainder->IsNegative;
@@ -3175,7 +3221,7 @@ void PrintBigFloatNumber(BigFloatNumber *Number)
 BigFloatNumber* CalculatePiGaussLegendre(unsigned int precision) //Calculates precision digits of pi using Gauss Legendre Algorithm
 {
     //Precision Setting
-    unsigned int GuardBuffer=10;
+    unsigned int GuardBuffer=30;
     unsigned int InternalPrecision = precision + GuardBuffer;
     unsigned int CurrentPrecision =1;
     unsigned int IterationCount = 0;
@@ -3246,54 +3292,65 @@ BigFloatNumber* CalculatePiGaussLegendre(unsigned int precision) //Calculates pr
 // LN(S)~Pi/(2*AGM(1,4/S) where S should be a massive number
 // S is a BigFloat => S=x*10^M |ln()  => Ln(S)=Ln(x)+M*Ln(10) =>Ln(x)=Ln(S)-m*Ln(10)
 // For finding Ln(x) we need to scale X with M zeros of precision 
-BigFloatNumber* AGM(BigFloatNumber* A, BigFloatNumber* B,unsigned int precision)
+BigFloatNumber* AGM(BigFloatNumber* A, BigFloatNumber* B, unsigned int precision)
 {
-    unsigned int GuardBuffer=10;
-    unsigned int InternalPrecision = precision + GuardBuffer;
-    bool HasConverged=false;
+    // Calculate the leading zero sink inside AGM
+    long int magA = (long int)A->Mantissa->NrOfDigits - 1 + A->Exponent;
+    long int magB = (long int)B->Mantissa->NrOfDigits - 1 + B->Exponent;
+    long int diff_mag = magA - magB;
+    if (diff_mag < 0) diff_mag = -diff_mag; // Absolute value
+    
+    // Total precision = requested precision + leading zero loss + GuardBuffer
+    unsigned int InternalPrecision = precision + (unsigned int)diff_mag + 30; 
+    
+    bool HasConverged = false;
+    unsigned int IterationCount = 0;
 
-    BigFloatNumber *A0=CloneBigNumberFloat(A);
-    BigFloatNumber *B0=CloneBigNumberFloat(B);
+    BigFloatNumber *A0 = CloneBigNumberFloat(A);
+    BigFloatNumber *B0 = CloneBigNumberFloat(B);
 
-    while(HasConverged==false)
+    while(HasConverged == false && IterationCount < 25)
     {
-      BigFloatNumber* ProductA0B0=MultiplyFloat(A0,B0);
-      BigFloatNumber* B1=SquareRoot(ProductA0B0,InternalPrecision);
-      RoundFloat(B1, InternalPrecision);
+        BigFloatNumber* ProductA0B0 = MultiplyFloat(A0,B0);
+        BigFloatNumber* B1 = SquareRoot(ProductA0B0,InternalPrecision);
+        RoundFloat(B1, InternalPrecision);
 
-      BigFloatNumber* A1=SumFloat(A0,B0);
-      DivizionBy2Float(A1);
-      RoundFloat(A1, InternalPrecision);
+        BigFloatNumber* A1 = SumFloat(A0,B0);
+        DivizionBy2Float(A1);
+        RoundFloat(A1, InternalPrecision);
 
-      BigFloatNumber* DeltaA = SubtractFloat(A0,A1);
-      if (DeltaA->Mantissa->NrOfDigits == 1 && DeltaA->Mantissa->Digits[0] == '0') 
+        BigFloatNumber* DeltaA = SubtractFloat(A0,A1);
+        if (DeltaA->Mantissa->NrOfDigits == 1 && DeltaA->Mantissa->Digits[0] == '0') 
         {
-            HasConverged=true; // Perfect 0
+            HasConverged = true; // Perfect 0
         }
-      else
+        else
         {
-          long int diff_magnitude = (long int)DeltaA->Mantissa->NrOfDigits - 1 + DeltaA->Exponent;
-            if (diff_magnitude <= -(long int)InternalPrecision) 
+            long int diff_magnitude = (long int)DeltaA->Mantissa->NrOfDigits - 1 + DeltaA->Exponent;
+            
+            // It safely converges exactly to what the caller requested!
+            if (diff_magnitude <= -(long int)precision) 
             {
-                 HasConverged=true; //Good Enough Precision
+                 HasConverged = true; 
             }
         }
 
-      FreeMemoryFloat(ProductA0B0);
-      FreeMemoryFloat(DeltaA);
-      FreeMemoryFloat(A0);A0=A1;
-      FreeMemoryFloat(B0);B0=B1;
+        FreeMemoryFloat(ProductA0B0);
+        FreeMemoryFloat(DeltaA);
+        FreeMemoryFloat(A0); A0 = A1;
+        FreeMemoryFloat(B0); B0 = B1;
 
+        IterationCount++;
     }
     
     FreeMemoryFloat(B0);
-    return A0; //A0 and B0 is equal up to InternalPrecision digits
+    return A0; 
 }
 
 BigFloatNumber* GenerateLn10Constant(BigFloatNumber* Global_Pi, unsigned int precision)
 {
-    unsigned int InternalPrecision = precision + 10;
     unsigned int m = (precision / 2) + 5;
+    unsigned int TargetPrecision = precision + 10; 
     
     // O(1) construction of B0 = 4 / 10^(m+1)
     BigNumber* FourMantissa = Init("4");
@@ -3301,20 +3358,20 @@ BigFloatNumber* GenerateLn10Constant(BigFloatNumber* Global_Pi, unsigned int pre
 
     // Run the AGM
     BigFloatNumber* A0 = InitFloat("1");
-    BigFloatNumber* AgmResult = AGM(A0, B0, InternalPrecision);
+    BigFloatNumber* AgmResult = AGM(A0, B0, TargetPrecision);
 
     // Calculate Ln(S) = Pi / (2 * AGM)
     BigFloatNumber* Pi_Over_2 = CloneBigNumberFloat(Global_Pi);
     DivizionBy2Float(Pi_Over_2);
     
-    BigFloatNumber* InverseAgm = Inverse(AgmResult, InternalPrecision);
+    BigFloatNumber* InverseAgm = Inverse(AgmResult, TargetPrecision);
     BigFloatNumber* Ln_S = MultiplyFloat(Pi_Over_2, InverseAgm);
 
     // Ln(10) = Ln(S) / (m+1)
     BigNumber* DivisorInt = FromUnsignedIntegerToBigNum(m + 1);
     BigFloatNumber* DivisorFloat = PrivateConstructorFloat(DivisorInt, 0);
     
-    BigFloatNumber* InverseDivisor = Inverse(DivisorFloat, InternalPrecision);
+    BigFloatNumber* InverseDivisor = Inverse(DivisorFloat, TargetPrecision);
     BigFloatNumber* Ln10 = MultiplyFloat(Ln_S, InverseDivisor); 
     RoundFloat(Ln10, precision);
 
@@ -3356,21 +3413,19 @@ BigFloatNumber* Ln(BigFloatNumber* X, unsigned int precision)
     long int m = target_magnitude - current_magnitude;
     if (m < 0) m = 0; // X is already massive enough!
 
-    // THE PRECISION FIX & CANCELLATION GUARD
-    // We boost internal precision by 'm' so RoundFloat doesn't delete the significant digits!
+
     unsigned int CancellationGuard = 0;
     long int temp_m = m;
     while(temp_m > 0) { CancellationGuard++; temp_m /= 10; }
     
-    unsigned int DecimalPlacesNeeded = precision + m + 10 + CancellationGuard;
+    unsigned int DecimalPlacesNeeded = precision + 10 + CancellationGuard;
 
-    // FAST B0 SHIFT TRICK (Optimization 2)
-    // Instead of inverting a massive S, we invert X and shift the exponent!
+    // Instead of inverting a massive S, we invert X and shift the exponent
     BigFloatNumber* B0 = Inverse(X, DecimalPlacesNeeded);
     MultiplyBy2(B0->Mantissa);MultiplyBy2(B0->Mantissa);
     CompressFloatInPlace(B0);
     
-    B0->Exponent -= m; // Scales by 10^-m instantly!
+    B0->Exponent -= m; // Scales by 10^-m 
     RoundFloat(B0, DecimalPlacesNeeded);
 
     // Run AGM
@@ -3399,7 +3454,7 @@ BigFloatNumber* Ln(BigFloatNumber* X, unsigned int precision)
     }
     else 
     {
-        Result = CloneBigNumberFloat(Ln_S); // No un-scaling needed!
+        Result = CloneBigNumberFloat(Ln_S);
     }
 
     RoundFloat(Result, precision);
@@ -3427,10 +3482,6 @@ long int BigNumToLong(BigNumber* Number)
     if (Number->IsNegative) value = -value;
     return value;
 }
-
-#if defined(__SIZEOF_INT128__) && defined(__GNUC__)
-    #include <quadmath.h> // Required for 128-bit sprintf
-#endif
 
 BigFloatNumber* ExpInitialGuess(BigFloatNumber* Y)
 {
@@ -3465,8 +3516,24 @@ BigFloatNumber* ExpInitialGuess(BigFloatNumber* Y)
         hw_result += term;
     }
 
-    char buffer[128];
-    quadmath_snprintf(buffer, sizeof(buffer), "%.33Qf", hw_result);
+   char buffer[128]; //we will manually store the number into a string without quad_snprintf
+   //Number will always be under 10 so will fit into int 
+   //Extract the integer part
+    int integer_part = (long long)hw_result;
+    __float128 fractional_part = hw_result - (__float128)integer_part;
+
+    // Write the integer part and the decimal point
+    int pos = sprintf(buffer, "%d.", integer_part);
+
+    // Extract exactly 33 fractional digits
+    for (int i = 0; i < 33; i++) {
+        fractional_part *= 10.0;
+        int digit = (int)fractional_part;
+        buffer[pos++] = digit + '0';
+        fractional_part -= (__float128)digit;
+    }
+    buffer[pos] = '\0';
+
     return InitFloat(buffer);
 
 // ==============================================================================
@@ -3543,7 +3610,7 @@ BigFloatNumber* Exp(BigFloatNumber* X, unsigned int precision)
 {
     if(X == NULL || INTERNAL_GLOBAL_PI == NULL || INTERNAL_GLOBAL_LN10 == NULL) return NULL;
 
-    // Fast-path: e^0 = 1
+    // e^0 = 1
     BigFloatNumber* Zero = InitFloat("0");
     if(IsEqual(X->Mantissa, Zero->Mantissa) && X->Exponent == 0)
     {
@@ -3553,24 +3620,27 @@ BigFloatNumber* Exp(BigFloatNumber* X, unsigned int precision)
     FreeMemoryFloat(Zero);
 
     // Negative exponent handler: e^-x = 1 / e^x
-    bool IsNegativeExp = X->Mantissa->IsNegative;
-    if (IsNegativeExp) MultiplyByNegativeOne(X->Mantissa);
+    BigFloatNumber* AbsX = CloneBigNumberFloat(X); //Clone X making exp thread safe
+    bool IsNegativeExp = AbsX->Mantissa->IsNegative;
+
+    // Force the local clone to be strictly positive for the math
+    AbsX->Mantissa->IsNegative = false;
 
     // ==============================================================================
     // ARGUMENT REDUCTION: X = K * Ln(10) + Y
     // ==============================================================================
-    long int X_Magnitude = (long int)X->Mantissa->NrOfDigits - 1 + X->Exponent;
+    long int X_Magnitude = (long int)AbsX->Mantissa->NrOfDigits - 1 + AbsX->Exponent;
     if (X_Magnitude < 0) X_Magnitude = 0;
     
     // Boost precision during reduction to prevent cancellation!
     unsigned int ReductionPrecision = precision + X_Magnitude + 10;
 
-    BigFloatNumber* R = DivizionSetPrecision(X, INTERNAL_GLOBAL_LN10, ReductionPrecision);
+    BigFloatNumber* R = DivizionSetPrecision(AbsX, INTERNAL_GLOBAL_LN10, ReductionPrecision);
     BigNumber* K_Int = Floor(R);
     BigFloatNumber* K_Float = PrivateConstructorFloat(CloneBigNumber(K_Int), 0);
 
     BigFloatNumber* K_Times_Ln10 = MultiplyFloat(K_Float, INTERNAL_GLOBAL_LN10);
-    BigFloatNumber* Y = SubtractFloat(X, K_Times_Ln10);
+    BigFloatNumber* Y = SubtractFloat(AbsX, K_Times_Ln10);
     RoundFloat(Y, precision + 10); 
 
     // ==============================================================================
@@ -3587,7 +3657,7 @@ BigFloatNumber* Exp(BigFloatNumber* X, unsigned int precision)
 
     BigFloatNumber* E_N = ExpInitialGuess(Y); 
 
-    // If the hardware guess is already perfect, we skip Newton-Raphson entirely!
+    // If the hardware guess is already perfect we skip Newton-Raphson
     if(CurrentPrecision >= InternalPrecision)
     {
         RoundFloat(E_N, InternalPrecision);
@@ -3619,7 +3689,7 @@ BigFloatNumber* Exp(BigFloatNumber* X, unsigned int precision)
     }
 
     // ==============================================================================
-    // O(1) BASE-10 SCALING: e^X = e^Y * 10^K
+    // BASE-10 SCALING: e^X = e^Y * 10^K
     // ==============================================================================
     long int K_Value = BigNumToLong(K_Int);
     E_N->Exponent += K_Value; 
@@ -3632,11 +3702,11 @@ BigFloatNumber* Exp(BigFloatNumber* X, unsigned int precision)
         BigFloatNumber* FinalResult = Inverse(E_N, precision);
         FreeMemoryFloat(E_N);
         E_N = FinalResult;
-        
-        MultiplyByNegativeOne(X->Mantissa); // Revert X back to its original state
+      
     }
 
     // Cleanup
+    FreeMemoryFloat(AbsX); //free the clone`s memory
     FreeMemoryFloat(R); 
     FreeMemory(K_Int); 
     FreeMemoryFloat(K_Float);
