@@ -3,7 +3,7 @@
 int main(void)
 {   
     //A test driver for BigNumber;
-    InitializeBigNumberLibrary(100);
+    InitializeBigNumberLibrary(1000);
     BigFloatNumber *PI=GetConstantPi(900);
     BigFloatNumber *LN10=GetConstantLn10(900);
 
