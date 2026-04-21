@@ -1,3 +1,4 @@
+#pragma once
 #include<stdbool.h>
 #include<stdint.h>
 //First 100 digits of famous constants
@@ -23,6 +24,7 @@ BigFloatNumber *FromBigNumber(BigNumber *Number); //Conversion from Int to Float
 
 BigNumber* Init(char* value); //Construct a BigNum from a string
 BigFloatNumber *InitFloat(char *value); //Construct a BigFloatNum from a string
+BigNumber* CloneBigNumber(BigNumber* Original);  //Functions Clones the Original by producing a new one identical by value with the argument
 void FreeMemory(BigNumber *Number);  //Destroys the BigNumber
 void FreeMemoryFloat(BigFloatNumber *Number); //Destroys the BigFloatNumber
 
@@ -72,6 +74,10 @@ void PrintBigNumber(BigNumber *Number);  //Prints the BigNumber
 void PrintBigFloatNumber(BigFloatNumber *Number); //Prints the BigFloatNumber
 
 void SwapNumbersInMemory(BigNumber** x,BigNumber** y);
+void DivizionBy2(BigNumber *Number); //Modifies the NUMBER in MEMORY, DOENST RETURN A NEW ONE
+void MultiplyBy2(BigNumber* Number); //Modifies the NUMBER in MEMORY, DOENST RETURN A NEW ONE
+void MultiplyByNegativeOne(BigNumber *Number); //Modifies the NUMBER in MEMORY, DOENST RETURN A NEW ONE
+void DividByPowerOf10(BigNumber *Number, unsigned int Power); //Dividing an integer by a power of 10 Modifies the NUMBER in MEMORY, DOENST RETURN A NEW ONE
 
 #if defined(__SIZEOF_INT128__) 
     BigNumber* FromUnsignedLongLongToBigNum(unsigned long long int Number); //Construct a BigINT from an unsigned long long int integer #endif

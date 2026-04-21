@@ -1439,6 +1439,31 @@ void DivideBy6(BigNumber* X)
     CleanTrailingZeros(X);
 }
 
+void DividByPowerOf10(BigNumber *Number, unsigned int Power) //Dividing an integer by a power of 10 (deleting last (power)digits from the number)
+{
+  if(Number==NULL || Power<=0) return ;
+
+  if(Power>=Number->NrOfDigits) 
+     {
+       Number->Digits[0]='0';
+       Number->Digits[1]='\0';
+       Number->NrOfDigits=1;
+       Number->IsNegative=false;
+       return ;
+     }
+
+  unsigned int NewLenght = Number->NrOfDigits-Power;
+    for (unsigned int i = 0; i < NewLenght; i++) 
+    {
+        Number->Digits[i] = Number->Digits[i + Power];
+    }
+    
+    Number->Digits[NewLenght] = '\0';
+    Number->NrOfDigits = NewLenght; 
+
+   CleanTrailingZeros(Number);
+}
+
 BigNumber* ExtractToomChunk(BigNumber* X, unsigned int start_index, unsigned int max_length) //O(N)
 {
     // If the chunk starts outside the bounds of the number, the chunk is just "0"
@@ -3328,7 +3353,7 @@ BigFloatNumber* AGM(BigFloatNumber* A, BigFloatNumber* B, unsigned int precision
         {
             long int diff_magnitude = (long int)DeltaA->Mantissa->NrOfDigits - 1 + DeltaA->Exponent;
             
-            // It safely converges exactly to what the caller requested!
+            // It safely converges exactly to what the caller requested
             if (diff_magnitude <= -(long int)precision) 
             {
                  HasConverged = true; 

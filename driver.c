@@ -3,14 +3,14 @@
 int main(void)
 {   
     //A test driver for BigNumber;
-    InitializeBigNumberLibrary(1000);
-    BigFloatNumber *PI=GetConstantPi(900);
-    BigFloatNumber *LN10=GetConstantLn10(900);
+    InitializeBigNumberLibrary(300);
+    BigFloatNumber *PI=GetConstantPi(200);
+    BigFloatNumber *LN10=GetConstantLn10(200);
 
     printf("After Initialization CONSTANTS\n");
 
-    BigNumber* Nr1=Init("2");
-    BigNumber* Nr2=Init("400");
+    BigNumber* Nr1=Init("10000000000000000000000000000000");
+    BigNumber* Nr2=Init("4000000000000000000000000000");
     BigNumber* Nr3=Sum(Nr1,Nr2);
     BigNumber* Nr4=Subtract(Nr1,Nr2);
     BigNumber* Nr5=FromUnsignedIntegerToBigNum(2);
@@ -18,7 +18,7 @@ int main(void)
     BigNumber* Remainder=Init("1");
     BigNumber* Nr7=LongDivision(Nr1,Nr2,Remainder);
     BigNumber *Nr8=Power(Nr1,Nr2);
-    BigNumber* Nr9=Modulo(Nr8,Nr2);
+    BigNumber* Nr9=Modulo(Nr1,Nr2);
 
     printf("After Initialization INT\n");
 
