@@ -15,8 +15,8 @@ int main(void)
     BigNumber* Nr4=Subtract(Nr1,Nr2);
     BigNumber* Nr5=FromUnsignedIntegerToBigNum(2);
     BigNumber* Nr6=Multiply(Nr1,Nr2);
-    BigNumber* Remainder=Init("1");
-    BigNumber* Nr7=LongDivision(Nr1,Nr2,Remainder);
+    BigNumber* Remainder;
+    BigNumber* Nr7=Division(Nr1,Nr2,&Remainder);
     BigNumber *Nr8=Power(Nr1,Nr2);
     BigNumber* Nr9=Modulo(Nr1,Nr2);
 
@@ -28,7 +28,7 @@ int main(void)
     BigFloatNumber* NrF3=MultiplyFloat(NrF1,NrF2);
     BigFloatNumber* NrF5=SumFloat(NrF1,NrF2);
     BigFloatNumber* NrF6=SubtractFloat(NrF1,NrF2);
-    BigFloatNumber* NrF7=DivizionSetPrecision(NrF1,NrF2,30);
+    BigFloatNumber* NrF7=DivisionFloat(NrF1,NrF2,30);
     BigFloatNumber* NrF8=PowerFloat(NrF1,NrF2,30);
     BigFloatNumber* NrF9=SquareRoot(NrF1,30);
     BigFloatNumber* NrF10=InverseSquareRoot(NrF1,30);

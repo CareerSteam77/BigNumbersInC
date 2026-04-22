@@ -40,7 +40,7 @@ BigNumber* PrecomputeBarrettMu(BigNumber* M)
   PowerOfTenString[ZerosCount+1]='\0';
 
   BigNumber* TenPower=Constructor(PowerOfTenString,ZerosCount+1,false);
-  BigNumber* Mu=LongDivision(TenPower,M,NULL);
+  BigNumber* Mu=Division(TenPower,M,NULL);
 
   FreeMemory(TenPower);
 
@@ -211,8 +211,8 @@ BigNumber* ExtendedEuclidean(BigNumber *A, BigNumber *B, BigNumber **X, BigNumbe
     while(IsEqual(R1,Zero)==false)
       {
         //Calculate new Quotient and Remainder
-        BigNumber *RNew=Init("0");
-        BigNumber* Q = LongDivision(R0, R1, RNew);
+        BigNumber *RNew;
+        BigNumber* Q = Division(R0, R1, &RNew);
 
         //Calculate x_new = x0 - q * x1
         BigNumber* QTimesX1 = Multiply(Q, X1);
@@ -270,7 +270,7 @@ BigNumber *LCM(BigNumber *A,BigNumber *B)
     if(IsNegative(CopyA)==true) MultiplyByNegativeOne(CopyA);
     if(IsNegative(CopyB)==true) MultiplyByNegativeOne(CopyB);
 
-    BigNumber *BDividedByGCD=LongDivision(CopyB,GreatestCommonDivizor,NULL);
+    BigNumber *BDividedByGCD=Division(CopyB,GreatestCommonDivizor,NULL);
     BigNumber *Result=Multiply(BDividedByGCD,CopyA);
 
     FreeMemory(CopyA);
@@ -426,15 +426,15 @@ BigNumber* GenerateRandomTrialNumberForRSA(unsigned int NrOfDigits)
 
 }
 
-unsigned int ModuloSmallInt(BigNumber* Number, unsigned int divisor) // A fast modulo calculator for integer divizors O(N) time O(1) memory
+unsigned int ModuloSmallInt(BigNumber* Number, unsigned int Divisor) // A fast modulo calculator for integer divizors O(N) time O(1) memory
 {
-    if (Number == NULL || divisor == 0) return 0;
+    if (Number == NULL || Divisor == 0) return 0;
 
     unsigned long long int remainder = 0; 
     for (long int i = Number->NrOfDigits - 1; i >= 0; i--) 
     {
         unsigned int current_digit = Number->Digits[i] - '0';
-        remainder = (remainder * 10 + current_digit) % divisor;
+        remainder = (remainder * 10 + current_digit) % Divisor;
     }
 
     return (unsigned int)remainder;
