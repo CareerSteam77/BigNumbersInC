@@ -32,7 +32,7 @@ BigNumber* Sum(BigNumber* Number1, BigNumber* Number2);  //Number1+Number2
 BigNumber* Subtract(BigNumber* Number1, BigNumber* Number2); //Number1-Number2
 BigNumber* Multiply(BigNumber* Number1, BigNumber* Number2); //Number1*Number2
 BigFloatNumber *MultiplyFloat(BigFloatNumber* Number1,BigFloatNumber *Number2);
-BigNumber* LongDivision(BigNumber* Dividend, BigNumber* Divisor,BigNumber* Remainder); // Divident/Divizor
+BigNumber* Division(BigNumber* Dividend, BigNumber* Divisor,BigNumber** Remainder); // Divident/Divizor with optional Remainder 
 BigNumber* Power(BigNumber*Number,BigNumber *Power); //Return a new BIGINT equal to Number^Power , if Power is negative return 0, if power is Positive apply Exponentiation by squaring algoritm
 BigNumber* Modulo(BigNumber * Dividend, BigNumber *Modulus);  // Divident mod Modulus 
 
@@ -47,7 +47,7 @@ BigFloatNumber* GenerateLn10Constant(BigFloatNumber* Global_Pi, unsigned int pre
 BigFloatNumber* MultiplyFloat(BigFloatNumber* Number1,BigFloatNumber *Number2); //Number1*Number2
 BigFloatNumber* SumFloat(BigFloatNumber* Number1,BigFloatNumber* Number2); //Number1+Number2
 BigFloatNumber* SubtractFloat(BigFloatNumber* Number1, BigFloatNumber* Number2); //Number1-Number2
-BigFloatNumber* DivizionSetPrecision(BigFloatNumber *Divident,BigFloatNumber *Divizor, unsigned int precision); //Number1/Number2 where Precision means number of decimal digits that the user wants
+BigFloatNumber* DivisionFloat(BigFloatNumber *Divident,BigFloatNumber *Divizor, unsigned int precision); //Number1/Number2 where Precision means number of decimal digits that the user wants
 BigFloatNumber* PowerFloat(BigFloatNumber *Number,BigFloatNumber *Power,unsigned int precision);  //Number^Power where Precision means number of decimal digits that the user wants if powers is not a natural number
 BigFloatNumber* SquareRoot(BigFloatNumber* Number, unsigned int precision); //Gives sqrt(Number) with precision digits
 BigFloatNumber* InverseSquareRoot(BigFloatNumber* Number, unsigned int precision);  //Gives 1/sqrt(Number) with precision digits

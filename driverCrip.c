@@ -2,7 +2,7 @@
 #include "BigNumberCriptography.h"
 #include <stdio.h>
 #define Size 100
-#define PrimeSize 16
+#define PrimeSize 250
 int main(void)
 {
     BigNumber* Nr1=Init("2550000123123999434341231405999999999999999999999999999999999999999999999999999922222222222222");
@@ -36,5 +36,6 @@ int main(void)
     FreeMemory(Nr5);
     FreeMemory(Nr6);
     FreeMemory(Nr7);FreeMemory(X);FreeMemory(Y);
+
     printf("After Cleanup\n");
 }

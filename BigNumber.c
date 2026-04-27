@@ -6,8 +6,9 @@
 #include<ctype.h>
 #include<pthread.h>
 
-#define Karatsuba_BOUND 128 //At how many digits should standard multiplication be used instead of Karatsuba
-#define ToomCook3Way_BOUND 1024 //At how many digits should ToomCook3Way be used for multiplication instead of Karatsuba
+#define BurnikelZiegler_BOUND 64  //At how many digits should Burnikel-Ziegler be used instead of standard division
+#define Karatsuba_BOUND 128       //At how many digits should Karatsuba be used instead of standard multiplication
+#define ToomCook3Way_BOUND 1024   //At how many digits should ToomCook3Way be used for multiplication instead of Karatsuba
 
 typedef struct{
     char* Digits;  //Digits are stored in reverse order for easier arithmetic operations
@@ -163,10 +164,10 @@ bool VerifyStringIsDecimal(const char *Value)
     short int DecimalPointCounter=0; //it should be always 1 or 0 ,otherwise Init fails  
     for(unsigned int index=1;index<strlen(Value);index++)
        {
-        if(isdigit(Value[index])==false && (Value[index]!='.'))
+        if(isdigit(Value[index])==false && (Value[index]!='.')  && (Value[index]!=','))
           return false;
 
-        if(Value[index]=='.')
+        if(Value[index]=='.' || Value[index]==',')
           DecimalPointCounter++;
        }
       
@@ -384,30 +385,24 @@ void FreeMemoryFloat(BigFloatNumber *Number)
 }
 
 void ShiftRightNPositions(BigNumber *Number,unsigned int N) //For multiplication by positive integer powers of 10 and for Long Division
-{  //DOESNT PRODUCE A NEW BIGINT, changes the argument in memory
-   if(N<=0) return; //no change needed
+{  
+  //DOESNT PRODUCE A NEW BIGINT, changes the argument in memory
 
+   if(N<=0) return; //no change needed
    if (Number->NrOfDigits == 1 && Number->Digits[0] == '0') return; //!!!Dont Shift the Number if it is 0,
 
-   char *NewDigits=malloc(sizeof(char)*(Number->NrOfDigits+N+1)); //Prev Digits + positions +'\0'
-   if(NewDigits==NULL)
-     {
-      perror("Allocating Memory for NewDigits inside ShiftRight failed");
-     }
-   strcpy(NewDigits,Number->Digits);
-
-   unsigned int index=0;
-   for(index = 0; index < N; index++) //add the zerous
+   char *ExpandedDigits = realloc(Number->Digits, Number->NrOfDigits + N + 1);
+    if (ExpandedDigits == NULL)
     {
-        NewDigits[index] = '0';
+        perror("Memory reallocation failed in ShiftRightNPositions");
+        exit(-1);
     }
+    
+    memmove(ExpandedDigits + N, ExpandedDigits, Number->NrOfDigits + 1); //Move the digits to the right N positions
+    memset(ExpandedDigits, '0', N); //Assing the zerous at the start
 
-   strcpy(NewDigits+N,Number->Digits);  //copy prev digits and deallocate memory
-   free(Number->Digits);
-
-   Number->Digits=NewDigits;
-   Number->NrOfDigits+=N;  //increment by positions
-
+    Number->Digits = ExpandedDigits;
+    Number->NrOfDigits += N;
 }
 
 void MultiplyByNegativeOne(BigNumber *Number)
@@ -2395,6 +2390,481 @@ BigNumber* FromSignedIntegerToBigNum(int Number)
     return PrivateConstructor(Digits, NrOfDigits, IsNegative);
 }
 
+BigNumber* LongDivision(BigNumber* Dividend, BigNumber* Divisor,BigNumber **Remainder)  //Time Complexity O(Divident.size * Divizor.size) 
+{
+    //LongDivision will always get positive numbers with restriction Divisior != 0 and Divident > Divizor
+  
+    char* QuotientString = calloc(Dividend->NrOfDigits + 1, sizeof(char));
+    BigNumber* CurrentRemainder = Init("0");
+
+    for (int i = Dividend->NrOfDigits - 1; i >= 0; i--)
+    {
+        ShiftRightNPositions(CurrentRemainder,1);
+        CurrentRemainder->Digits[0]=Dividend->Digits[i];
+        CleanTrailingZeros(CurrentRemainder);
+        int quotient_digit = 0;
+        while (BigNumberCompareAbsoluteValue(CurrentRemainder, Divisor) >= 0)
+        {
+            BigNumber* NextRemainder = Subtract(CurrentRemainder, Divisor);
+            FreeMemory(CurrentRemainder);
+            CurrentRemainder = NextRemainder;
+            quotient_digit++;
+        }
+
+        QuotientString[i] = quotient_digit + '0';
+    }
+
+    //Clean up trailing zeros in the Quotient string
+    unsigned int ActualDigits = Dividend->NrOfDigits;
+    while (ActualDigits > 1 && QuotientString[ActualDigits - 1] == '0')
+    {
+        ActualDigits--;
+    }
+    QuotientString[ActualDigits] = '\0';
+
+
+    BigNumber* FinalQuotient = PrivateConstructor(QuotientString, ActualDigits,false);
+    
+    if(Remainder==NULL)
+      {
+        FreeMemory(CurrentRemainder);
+      }
+    else
+      {
+        //If user wants to retain the Remaider we take ownership from CurentRemainder
+        *Remainder=CurrentRemainder;
+      }
+    
+    return FinalQuotient;
+}
+
+void MultiplyBySingleDigit(BigNumber *Number, short int Digit)
+{
+   if(Number==NULL || Digit>10) return;
+
+   if(Digit==0)
+    {
+        Number->Digits[0] = '0';
+        Number->Digits[1] = '\0';
+        Number->NrOfDigits = 1;
+        Number->IsNegative = false;
+        return;
+    }
+  
+  unsigned int Carry = 0;
+  for(unsigned int i=0;i<Number->NrOfDigits;i++)
+    {
+       unsigned int Prod=(Number->Digits[i]-'0')*Digit +Carry;
+       Number->Digits[i] =(Prod % 10)+'0';
+       Carry = Prod / 10;
+    }
+  
+  if(Carry>0)
+    {
+        char *ExpandedDigits=realloc(Number->Digits,sizeof(char)*(Number->NrOfDigits+2));
+        if(ExpandedDigits==NULL)
+          {
+            perror("Allocating Memory inside Multiply by Single Digit in case of overflow failed\n");
+            exit(-1);
+          }
+        Number->Digits=ExpandedDigits;
+        Number->Digits[Number->NrOfDigits] =Carry+'0';
+        Number->NrOfDigits++;
+        Number->Digits[Number->NrOfDigits] ='\0';
+    }
+}
+
+void DivideBySingleDigit(BigNumber* Number, unsigned int Divisor) 
+{
+    if (Number == NULL || Divisor == 0) return ;
+    if (Divisor == 1) return;
+
+    unsigned long long Remainder = 0;
+    for (long int i = Number->NrOfDigits - 1; i >= 0; i--) 
+    {
+        Remainder = (Remainder * 10) + (Number->Digits[i] - '0');
+        Number->Digits[i] = (Remainder / Divisor) + '0';
+        Remainder = Remainder % Divisor;
+    }
+
+    CleanTrailingZeros(Number);
+}
+
+void NormalizeBurnikelZiegler(BigNumber* CloneDividend, BigNumber* CloneDivisor,int *OutScalar, int* OutPad)
+{
+    //In order to use Burnikel-Ziegler we need MSD(Divisor) >=5
+    //We will multiply both numbers by a scallar factor c=floor(10/(MSD+1))
+
+    unsigned int MSD = CloneDivisor->Digits[CloneDivisor->NrOfDigits-1] - '0';
+    *OutScalar=1;
+    if(MSD<5)
+     {
+        *OutScalar=10/(MSD+1);
+     }
+    if(*OutScalar>1)
+     {
+        MultiplyBySingleDigit(CloneDividend,*OutScalar);
+        MultiplyBySingleDigit(CloneDivisor,*OutScalar);
+     }
+    
+    unsigned int TargetLen = BurnikelZiegler_BOUND;
+    while (TargetLen < CloneDivisor->NrOfDigits) 
+    {
+        TargetLen *= 2;
+    }
+    
+    *OutPad = TargetLen - CloneDivisor->NrOfDigits;
+    if (*OutPad > 0) 
+    {
+        ShiftRightNPositions(CloneDividend, *OutPad);
+        ShiftRightNPositions(CloneDivisor,  *OutPad);
+    }
+
+}
+
+BigNumber* ExtractBigNumberBlock(BigNumber* Number, unsigned int StartIndex, unsigned int Lenght) 
+{
+    // If startingIndex is larger than number of digits return "0" 
+    if (StartIndex >= Number->NrOfDigits) 
+    {
+        BigNumber *Zero=Init("0");
+        return Zero;
+    }
+
+    unsigned int ActualLenght = Lenght;
+    if (StartIndex+ Lenght > Number->NrOfDigits) 
+    {
+        ActualLenght=Number->NrOfDigits-StartIndex;
+    }
+
+    char* ExtractedString = malloc(ActualLenght+1);
+    if(ExtractedString==NULL)
+     {
+       perror("Allocating Memory inside BurnikelZiegler failed");
+       exit(-1);
+     }
+    memcpy(ExtractedString,Number->Digits+StartIndex,ActualLenght);
+    ExtractedString[ActualLenght] = '\0';
+
+    BigNumber* Result = PrivateConstructor(ExtractedString, ActualLenght, Number->IsNegative);
+    CleanTrailingZeros(Result);
+    
+    return Result;
+}
+
+//Optimized variant for (Top * 10^M) + Bottom  
+//Fills with zeros if Bottom is shorter than M.
+BigNumber* ConcatPad(BigNumber* Bottom, BigNumber* Top, unsigned int M) 
+{
+    // If Top is Zero the result is the Bottom number
+    if (Top->NrOfDigits == 1 && Top->Digits[0] == '0') 
+    {
+        return CloneBigNumber(Bottom);
+    }
+
+    unsigned int TotalLength = M + Top->NrOfDigits;
+    char* CombinedDigits = malloc(TotalLength + 1);
+    
+    if (CombinedDigits == NULL) 
+    { 
+        perror("Memory Allocation failed in ConcatPad"); 
+        exit(-1); 
+    }
+    
+    // Copy the bottom part into the lower indices
+    unsigned int Index;
+    for (Index = 0; Index < Bottom->NrOfDigits && Index < M; Index++) 
+    {
+        CombinedDigits[Index] = Bottom->Digits[Index];
+    }
+    
+    // Pad with zeros up to M if the bottom part was smaller
+    for (; Index < M; Index++) 
+    {
+        CombinedDigits[Index] = '0';
+    }
+    
+    //Append the top part into the higher indices
+    for (unsigned int J = 0; J < Top->NrOfDigits; J++) 
+    {
+        CombinedDigits[M + J] = Top->Digits[J];
+    }
+    CombinedDigits[TotalLength] = '\0';
+    
+    BigNumber* Result = PrivateConstructor(CombinedDigits, TotalLength, false);
+    CleanTrailingZeros(Result);
+    
+    return Result;
+}
+
+BigNumber* Divide3nBy2n(BigNumber* Dividend3n, BigNumber* Divisor2n, BigNumber** Remainder);
+BigNumber* BurnikelZieglerDivide(BigNumber* Dividend, BigNumber* Divisor, BigNumber** Remainder) //ONLY WORKS IF Dividend->NrOfDigits<=2*Divisor->NrOfDigits
+{
+  if(Divisor->NrOfDigits <BurnikelZiegler_BOUND)
+      {
+        return LongDivision(Dividend,Divisor,Remainder);
+      }
+  
+  unsigned int M = Divisor->NrOfDigits / 2;
+  BigNumber* TopThreeBlocks = ExtractBigNumberBlock(Dividend, M, 3 * M);  //Extract blocks A3, A2, A1 as one contiguous array
+  
+  //Calculate the Upper Quotient recursively
+    BigNumber* UpperRemainder = NULL;
+    BigNumber* UpperQuotient = Divide3nBy2n(TopThreeBlocks, Divisor, &UpperRemainder);
+    FreeMemory(TopThreeBlocks);
+   
+  //Assemble Temporary Dividend = UpperRemainder * 10^M + A0
+    BigNumber* BottomBlockA0 = ExtractBigNumberBlock(Dividend, 0, M);
+    BigNumber* CombinedForLowerQuotient = ConcatPad(BottomBlockA0, UpperRemainder, M);
+    FreeMemory(BottomBlockA0); 
+    FreeMemory(UpperRemainder);
+
+  //Calculate the Lower Quotient recursively
+    BigNumber* LowerRemainder = NULL;
+    BigNumber* LowerQuotient = Divide3nBy2n(CombinedForLowerQuotient, Divisor, &LowerRemainder);
+    FreeMemory(CombinedForLowerQuotient);
+
+  //Assign the Optional Remainder if needed
+    if (Remainder != NULL) 
+      {
+        *Remainder = LowerRemainder; 
+      }
+    else 
+      {
+        FreeMemory(LowerRemainder);
+      }
+    
+    // Assemble Final Quotient = UpperQuotient * 10^M + LowerQuotient
+    BigNumber* FinalQuotient = ConcatPad(LowerQuotient, UpperQuotient, M);
+
+    FreeMemory(UpperQuotient); 
+    FreeMemory(LowerQuotient);
+
+    return FinalQuotient;
+}
+
+BigNumber* Divide3nBy2n(BigNumber* Dividend3n, BigNumber* Divisor2n, BigNumber** Remainder)
+{
+  unsigned int M = Divisor2n->NrOfDigits / 2;
+
+  // Extract A21 (Top 2 blocks of Dividend) and B1 (Top block of Divisor)
+  BigNumber* TopTwoBlocks = ExtractBigNumberBlock(Dividend3n, M, 2 * M);
+  BigNumber* UpperDivisorB1 = ExtractBigNumberBlock(Divisor2n, M, M);
+
+  //Estimate the Quotient by returning to the 2n/n algorithm
+    BigNumber* PartialRemainder = NULL;
+    BigNumber* EstimatedQuotient =BurnikelZieglerDivide(TopTwoBlocks, UpperDivisorB1, &PartialRemainder);
+    FreeMemory(TopTwoBlocks); 
+    FreeMemory(UpperDivisorB1);
+
+  //R_temp = PartialRemainder * 10^M + A0
+    BigNumber* BottomBlockA0 = ExtractBigNumberBlock(Dividend3n, 0, M);
+    BigNumber* TemporaryRemainder = ConcatPad(BottomBlockA0, PartialRemainder, M);
+    FreeMemory(BottomBlockA0); 
+    FreeMemory(PartialRemainder);
+  
+    BigNumber* LowerDivisorB0 = ExtractBigNumberBlock(Divisor2n, 0, M);
+    BigNumber* CorrectionProduct = Multiply(EstimatedQuotient, LowerDivisorB0);
+    FreeMemory(LowerDivisorB0);
+    
+    // Correction Step 
+    // If TemporaryRemainder < CorrectionProduct, the quotient was overestimated.
+    while (BigNumberCompareAbsoluteValue(TemporaryRemainder, CorrectionProduct) == -1) 
+    {
+        // Decrement EstimatedQuotient by 1
+        BigNumber* One = Init("1");
+        BigNumber* DecrementedQuotient = Subtract(EstimatedQuotient, One); 
+        FreeMemory(EstimatedQuotient); 
+        EstimatedQuotient = DecrementedQuotient; 
+        FreeMemory(One);
+        
+        // Add Divisor back to the TemporaryRemainder
+        BigNumber* AdjustedRemainder = Sum(TemporaryRemainder, Divisor2n); 
+        FreeMemory(TemporaryRemainder); 
+        TemporaryRemainder = AdjustedRemainder;
+    }
+
+  //Calculate actual Remainder if requested
+    if (Remainder != NULL) 
+    {
+        *Remainder = Subtract(TemporaryRemainder, CorrectionProduct);
+    }
+
+    FreeMemory(TemporaryRemainder); 
+    FreeMemory(CorrectionProduct);
+
+    return EstimatedQuotient;
+}
+
+BigNumber* ArbitraryBurnikelZiegler(BigNumber* Dividend, BigNumber* Divisor, BigNumber** Remainder)
+{ 
+    if (Dividend->NrOfDigits <= 2 * Divisor->NrOfDigits) 
+    {
+        return BurnikelZieglerDivide(Dividend, Divisor, Remainder);
+    }
+
+    // Divide the divident into blocks of size Divisor->NrOfDigits
+    // Similar to LongDivision, each block will get divided
+    
+    BigNumber* CurrentRemainder = Init("0");
+    BigNumber* FinalQuotient    = Init("0"); 
+    BigNumber* Zero             = Init("0");
+    // From left to right traverse the Divident into Divisor->NrOfDigits blocks
+    long int currentIndex = Dividend->NrOfDigits;
+    
+    while (currentIndex > 0)
+    {
+        unsigned int ChunkSize = Divisor->NrOfDigits;
+        if (currentIndex < Divisor->NrOfDigits) 
+            ChunkSize = currentIndex; 
+        
+        currentIndex -= ChunkSize;
+  
+        BigNumber* NextChunk = ExtractBigNumberBlock(Dividend, currentIndex, ChunkSize);
+        
+        // TempDividend: R * 10^ChunkSize + NextChunk
+        BigNumber* TempDividend;
+        bool isRemainderZero = IsEqual(CurrentRemainder, Zero);
+        if (isRemainderZero)
+        {
+            TempDividend = CloneBigNumber(NextChunk);
+        }
+        else
+        {
+            TempDividend = ConcatPad(NextChunk, CurrentRemainder, ChunkSize);
+        }
+        FreeMemory(NextChunk);
+        
+        BigNumber* BlockRemainder = NULL;
+        BigNumber* BlockQuotient;
+        
+        if (BigNumberCompareAbsoluteValue(TempDividend, Divisor) == -1)
+        {
+            BlockQuotient = Init("0");
+            BlockRemainder = CloneBigNumber(TempDividend);
+        }
+        else
+        {
+            BlockQuotient = BurnikelZieglerDivide(TempDividend, Divisor, &BlockRemainder);
+        }
+        
+        // Adăugăm Câtul blocului la Câtul Final (Q_final = Q_final * 10^ChunkSize + BlockQuotient)
+        BigNumber* TempFinalQ = ConcatPad(BlockQuotient, FinalQuotient, ChunkSize);
+        FreeMemory(FinalQuotient);
+        FinalQuotient = TempFinalQ;
+        
+        FreeMemory(CurrentRemainder);CurrentRemainder = BlockRemainder;
+        FreeMemory(TempDividend);
+        FreeMemory(BlockQuotient);
+    }
+    
+    FreeMemory(Zero);
+
+    if (Remainder != NULL)
+    {
+        *Remainder = CurrentRemainder;
+    }
+    else
+    {
+        FreeMemory(CurrentRemainder);
+    }
+    
+    CleanTrailingZeros(FinalQuotient);
+    return FinalQuotient;
+}
+
+BigNumber *Division(BigNumber *Dividend,BigNumber *Divisor,BigNumber **Remainder)
+{
+    BigNumber *Zero=Init("0");
+    if(Dividend==NULL || Divisor==NULL || IsEqual(Divisor,Zero)==true)
+      {
+         if(Remainder!=NULL)
+          *Remainder=NULL;
+        FreeMemory(Zero);
+        return NULL;
+      }
+    
+    if(IsEqual(Dividend,Zero)==true)
+      {
+         if(Remainder!=NULL)
+          {
+            *Remainder=Init("0");
+          }
+         return Zero;
+      }
+
+    int CompareDivisorAndDivident=BigNumberCompareAbsoluteValue(Dividend, Divisor);
+    if (CompareDivisorAndDivident== -1) 
+      {
+        if (Remainder != NULL) *Remainder = CloneBigNumber(Dividend);
+        return Zero;
+      }
+    
+    BigNumber *One=Init("1");
+    if(CompareDivisorAndDivident == 0)
+    {
+        if (Remainder != NULL) *Remainder = Zero;
+        else FreeMemory(Zero);
+        return One;
+    }
+
+    if(IsEqual(Divisor,One)==true)
+      {
+        if(Remainder!=NULL)  *Remainder=Zero;
+        else FreeMemory(Zero);
+        
+        BigNumber *Quotient=CloneBigNumber(Dividend);
+        FreeMemory(One);
+        return Quotient;
+      }
+    
+    BigNumber *NegativeOne=Init("-1");
+    if(IsEqual(Divisor,NegativeOne)==true)
+      {
+        if(Remainder!=NULL)
+          *Remainder=Zero;
+        
+        BigNumber *Quotient=CloneBigNumber(Dividend);
+        MultiplyByNegativeOne(Quotient);
+        FreeMemory(NegativeOne);
+        return Quotient;
+      }
+    
+    bool ResultSign= Dividend->IsNegative!=Divisor->IsNegative; //Sign of the result
+    
+    //By working with clones(instead of multiplyin with -1 then reversing it at the end) we make it thread safe
+    BigNumber* CloneDividend=CloneBigNumber(Dividend);
+    BigNumber* CloneDivisor= CloneBigNumber(Divisor);
+
+    //Forcing the numbers to be positive
+    if(IsNegative(CloneDividend)==true) MultiplyByNegativeOne(CloneDividend);
+    if(IsNegative(CloneDivisor)==true)  MultiplyByNegativeOne(CloneDivisor);
+    
+    BigNumber* Quotient;
+    if(Divisor->NrOfDigits < BurnikelZiegler_BOUND ) 
+      {
+        Quotient=LongDivision(CloneDividend,CloneDivisor,Remainder);
+      }
+    else
+      { 
+        int Scalar=1;
+        int Padding=0;
+        NormalizeBurnikelZiegler(CloneDividend,CloneDivisor,&Scalar,&Padding);
+        Quotient=ArbitraryBurnikelZiegler(CloneDividend,CloneDivisor,Remainder);
+        if (Remainder != NULL && *Remainder != NULL) 
+        {       
+            if (Padding > 0) DividByPowerOf10(*Remainder, Padding);
+            if (Scalar > 1)  DivideBySingleDigit(*Remainder, Scalar); 
+        }
+      }
+    
+    FreeMemory(CloneDividend);
+    FreeMemory(CloneDivisor);
+
+    Quotient->IsNegative = ResultSign;
+    return Quotient;
+}
+
 void DivizionBy2(BigNumber *Number) //Modifies the NUMBER in MEMORY, DOENST RETURN A NEW ONE
 {
     //An O(NrOfDigits) algoritm to quickly find Number/2 in memory without any Auxiliary Memory and No Garbage Collection
@@ -2442,87 +2912,6 @@ void DivizionBy2Float(BigFloatNumber* Number)
     CompressFloatInPlace(Number);
 }
 
-BigNumber* LongDivision(BigNumber* Dividend, BigNumber* Divisor,BigNumber *Remainder)  //Time Complexity O(Divident.size * Divizor.size) 
-{
-    BigNumber* Zero=Init("0");
-
-    if(BigNumberCompareAbsoluteValue(Divisor,Zero)==0)  //If Divizor is 0
-      {
-        printf("DIVIZION BY 0, RETURNED NULL");
-        free(Zero);
-        return NULL;
-      }
-
-    if(BigNumberCompareAbsoluteValue(Dividend,Divisor)==-1)   //If Divizor is less than Divident than Quotint is 0 and Remainder= Divizor
-       {
-        if (Remainder != NULL)
-          {
-            free(Remainder->Digits);
-            Remainder->Digits = malloc(Dividend->NrOfDigits + 1);
-            strcpy(Remainder->Digits, Dividend->Digits);
-            Remainder->NrOfDigits = Dividend->NrOfDigits;
-            Remainder->IsNegative = Dividend->IsNegative;
-          }
-        
-        return Zero;
-       }
-    
-    bool IsDivizorNegative=Divisor->IsNegative;
-    if(IsDivizorNegative)
-      MultiplyByNegativeOne(Divisor); //If it is not turned into a pozitive ,Long Division diverges to +inf
-      
-    char* QuotientString = calloc(Dividend->NrOfDigits + 1, sizeof(char));
-    BigNumber* CurrentRemainder = Init("0");
-
-    for (int i = Dividend->NrOfDigits - 1; i >= 0; i--)
-    {
-        ShiftRightNPositions(CurrentRemainder,1);
-        CurrentRemainder->Digits[0]=Dividend->Digits[i];
-        CleanTrailingZeros(CurrentRemainder);
-        int quotient_digit = 0;
-        while (BigNumberCompareAbsoluteValue(CurrentRemainder, Divisor) >= 0)
-        {
-            BigNumber* NextRemainder = Subtract(CurrentRemainder, Divisor);
-            FreeMemory(CurrentRemainder);
-            CurrentRemainder = NextRemainder;
-            quotient_digit++;
-        }
-
-        QuotientString[i] = quotient_digit + '0';
-    }
-
-    //Clean up trailing zeros in the Quotient string
-    unsigned int ActualDigits = Dividend->NrOfDigits;
-    while (ActualDigits > 1 && QuotientString[ActualDigits - 1] == '0')
-    {
-        ActualDigits--;
-    }
-    QuotientString[ActualDigits] = '\0';
-
-    bool IsNegative=false;
-    if(Dividend->IsNegative !=  IsDivizorNegative)
-       IsNegative=true;
-    BigNumber* FinalQuotient = PrivateConstructor(QuotientString, ActualDigits,IsNegative);
-    
-    if(Remainder==NULL)
-      {
-        FreeMemory(CurrentRemainder);
-      }
-    else
-      {
-        //If user wants to retain the Remaider we copy its values from CurentRemainder and Deallocate his memory
-        free(Remainder->Digits);
-        Remainder->Digits=CurrentRemainder->Digits;
-        Remainder->NrOfDigits=CurrentRemainder->NrOfDigits;
-        Remainder->IsNegative=CurrentRemainder->IsNegative;
-        free(CurrentRemainder);
-      }
-    
-    if(IsDivizorNegative)
-      {MultiplyByNegativeOne(Divisor);} //revert back to the original divisor
-    
-    return FinalQuotient;
-}
 
 BigFloatNumber* InverseInitialGuess(BigFloatNumber* Divisor)
 {
@@ -2688,7 +3077,20 @@ BigNumber *Floor(BigFloatNumber *NumberFloat)
     return NumberInt;
 }
 
-BigNumber* Modulo(BigNumber * Dividend, BigNumber *Modulus)  // Divident mod Modulus Complexity O(N^1.58) Avg and O(1) when Modulus =0,1,2 and Dividend<Modulus
+BigNumber* Modulo(BigNumber *Dividend, BigNumber *Modulus) //Very fast Modulo operation using Burnikel-Ziegler
+{
+    if (Dividend == NULL || Modulus == NULL) return NULL;
+
+    BigNumber* Remainder = NULL;
+    BigNumber* Quotient = Division(Dividend, Modulus, &Remainder); //We only care about the remainder from Burnikel-Ziegler
+
+    FreeMemory(Quotient);
+
+    return Remainder;
+}
+
+//Deprecated
+BigNumber* ModuloNewtonRaphson(BigNumber * Dividend, BigNumber *Modulus)  // Divident mod Modulus Complexity O(N^1.58) Avg and O(1) when Modulus =0,1,2 and Dividend<Modulus
 {
   // We calcute the Modulo by Divident mod Modulus:= Dividend -Modulus*Floor(Dividend/Modulus)  and finding Dividend/Modulus using Newton`s method
     if(Dividend==NULL || Modulus==NULL) return NULL;
@@ -2768,18 +3170,38 @@ BigNumber* Modulo(BigNumber * Dividend, BigNumber *Modulus)  // Divident mod Mod
     return Result;
 }
 
-BigFloatNumber *DivizionSetPrecision(BigFloatNumber *Divident,BigFloatNumber *Divizor, unsigned int precision) //Precision means number of decimal digits that the user wants
+BigFloatNumber *DivisionFloat(BigFloatNumber *Divident,BigFloatNumber *Divisor, unsigned int precision) //Precision means number of decimal digits that the user wants
 {
-    if(Divident==NULL || Divizor==NULL )  //Also consider divizion by 0, in the future suport for +-Infinity could be added
+    if(Divident==NULL || Divisor==NULL )  //Also consider divizion by 0, in the future suport for +-Infinity could be added
        return NULL;
     
     //We need to normalize the divident to have the exponent equal to the precision
     //Then Use the Divizion Algorithm for BigINT to calculate the mantissa
     //Remark : Reminder will be set to NULL
     
-    long int ShiftNeededInDividentExponent=Divident->Exponent - Divizor->Exponent + precision; //calculate shift for normalization
+    long int ShiftNeededInDividentExponent=Divident->Exponent - Divisor->Exponent + precision; //calculate shift for normalization
     BigNumber *CopyDivident=CloneBigNumber(Divident->Mantissa);  //create a new BIGINT ,DOESNT ALTER DIVIDENT
-    ShiftRightNPositions(CopyDivident,ShiftNeededInDividentExponent); //Normalize it
+    BigNumber *CopyDivisor =CloneBigNumber(Divisor->Mantissa);   //create a new BIGINT ,DOESNT ALTER DIVISOR
+    long int FinalExponent;
+
+    if(ShiftNeededInDividentExponent>0)
+      {
+        ShiftRightNPositions(CopyDivident,ShiftNeededInDividentExponent); //Normalize Divident
+        FinalExponent = Divident->Exponent - Divisor->Exponent - ShiftNeededInDividentExponent;
+      }
+    else
+      {
+        if(ShiftNeededInDividentExponent<0)
+          {
+            long int AbsShift = -ShiftNeededInDividentExponent;
+            ShiftRightNPositions(CopyDivisor, (unsigned int)AbsShift);  //Normalize Divisor
+            FinalExponent = Divident->Exponent - (Divisor->Exponent - AbsShift);
+          }
+        else
+          {
+            FinalExponent = Divident->Exponent - Divisor->Exponent;
+          }
+      }
 
     BigFloatNumber* Quotient=malloc(sizeof(BigFloatNumber));
     if(Quotient==NULL)
@@ -2787,10 +3209,11 @@ BigFloatNumber *DivizionSetPrecision(BigFloatNumber *Divident,BigFloatNumber *Di
         perror("Allocating memory for QuotientFloat failed");
         exit(-1);
       }
-    Quotient->Mantissa=LongDivision(CopyDivident,Divizor->Mantissa,NULL);  //Perform Divizion to calculate Quotient, REMAINDER SET TO NULL
-    Quotient->Exponent=Divident->Exponent - Divizor->Exponent - ShiftNeededInDividentExponent;
+    Quotient->Mantissa=Division(CopyDivident,CopyDivisor,NULL);  //Perform Divizion to calculate Quotient, REMAINDER SET TO NULL
+    Quotient->Exponent = FinalExponent;
 
     FreeMemory(CopyDivident);
+    FreeMemory(CopyDivisor);
     
     CompressFloatInPlace(Quotient);
     return Quotient;
@@ -2895,7 +3318,7 @@ BigFloatNumber* PowerFloat(BigFloatNumber *Number,BigFloatNumber *Power,unsigned
           BigFloatNumber* Y=InitFloat("1");
           if(IsNegative(Power->Mantissa)==true) //x^-n= (1/x)^n
             {
-              BigFloatNumber *DivideByOne=DivizionSetPrecision(One,Number,InternalPrecision);// Calculate 1/x with InternalPrecision
+              BigFloatNumber *DivideByOne=DivisionFloat(One,Number,InternalPrecision);// Calculate 1/x with InternalPrecision
               SwapNumbersInMemoryFloat(&DivideByOne,&CopyNumber);
               FreeMemoryFloat(DivideByOne);
               MultiplyByNegativeOne(CopyPower->Mantissa);  //Multiply the power by -1
@@ -3046,7 +3469,7 @@ BigFloatNumber *SquareRoot(BigFloatNumber* Number, unsigned int precision)
 
     BigFloatNumber* InverseGuess = SquareRootInitialGuess(Number);
     BigFloatNumber* One= InitFloat("1");
-    BigFloatNumber* Y=DivizionSetPrecision(One,InverseGuess,InternalPrecision);
+    BigFloatNumber* Y=DivisionFloat(One,InverseGuess,InternalPrecision);
     BigFloatNumber* Three = InitFloat("3");
 
     while (current_precision <= InternalPrecision)
@@ -3105,7 +3528,7 @@ BigFloatNumber *InverseSquareRoot(BigFloatNumber* Number, unsigned int precision
 
     BigFloatNumber* InverseGuess = SquareRootInitialGuess(Number);
     BigFloatNumber* One= InitFloat("1");
-    BigFloatNumber* Y=DivizionSetPrecision(One,InverseGuess,InternalPrecision);
+    BigFloatNumber* Y=DivisionFloat(One,InverseGuess,InternalPrecision);
     BigFloatNumber* Three = InitFloat("3");
 
     while (current_precision <= InternalPrecision)
@@ -3660,7 +4083,7 @@ BigFloatNumber* Exp(BigFloatNumber* X, unsigned int precision)
     // Boost precision during reduction to prevent cancellation!
     unsigned int ReductionPrecision = precision + X_Magnitude + 10;
 
-    BigFloatNumber* R = DivizionSetPrecision(AbsX, INTERNAL_GLOBAL_LN10, ReductionPrecision);
+    BigFloatNumber* R = DivisionFloat(AbsX, INTERNAL_GLOBAL_LN10, ReductionPrecision);
     BigNumber* K_Int = Floor(R);
     BigFloatNumber* K_Float = PrivateConstructorFloat(CloneBigNumber(K_Int), 0);
 

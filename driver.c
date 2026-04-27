@@ -3,20 +3,20 @@
 int main(void)
 {   
     //A test driver for BigNumber;
-    InitializeBigNumberLibrary(300);
+    InitializeBigNumberLibrary(600);
     BigFloatNumber *PI=GetConstantPi(200);
     BigFloatNumber *LN10=GetConstantLn10(200);
 
     printf("After Initialization CONSTANTS\n");
 
-    BigNumber* Nr1=Init("10000000000000000000000000000000");
-    BigNumber* Nr2=Init("4000000000000000000000000000");
+    BigNumber* Nr1=Init("10");
+    BigNumber* Nr2=Init("20");
     BigNumber* Nr3=Sum(Nr1,Nr2);
     BigNumber* Nr4=Subtract(Nr1,Nr2);
     BigNumber* Nr5=FromUnsignedIntegerToBigNum(2);
     BigNumber* Nr6=Multiply(Nr1,Nr2);
-    BigNumber* Remainder=Init("1");
-    BigNumber* Nr7=LongDivision(Nr1,Nr2,Remainder);
+    BigNumber* Remainder;
+    BigNumber* Nr7=Division(Nr1,Nr2,&Remainder);
     BigNumber *Nr8=Power(Nr1,Nr2);
     BigNumber* Nr9=Modulo(Nr1,Nr2);
 
@@ -28,7 +28,7 @@ int main(void)
     BigFloatNumber* NrF3=MultiplyFloat(NrF1,NrF2);
     BigFloatNumber* NrF5=SumFloat(NrF1,NrF2);
     BigFloatNumber* NrF6=SubtractFloat(NrF1,NrF2);
-    BigFloatNumber* NrF7=DivizionSetPrecision(NrF1,NrF2,30);
+    BigFloatNumber* NrF7=DivisionFloat(NrF1,NrF2,30);
     BigFloatNumber* NrF8=PowerFloat(NrF1,NrF2,30);
     BigFloatNumber* NrF9=SquareRoot(NrF1,30);
     BigFloatNumber* NrF10=InverseSquareRoot(NrF1,30);
@@ -36,6 +36,10 @@ int main(void)
     BigFloatNumber* NrF12=Ln(NrF1,30);
     BigFloatNumber* NrF13=Exp(NrF1,60);
     printf("After Initialization FLOAT\n");
+
+    printf("CONSTANTS:\n");
+    PrintBigFloatNumber(PI);printf("\n");
+    PrintBigFloatNumber(LN10);printf("\n");
 
     PrintBigFloatNumber(NrF4);printf("\n");
     printf("pi:");PrintBigFloatNumber(NrF1);printf("\n");
@@ -63,12 +67,10 @@ int main(void)
     
     printf("After Printing the Numbers \n");
 
-    printf("CONSTANTS:\n");
-    PrintBigFloatNumber(PI);printf("\n");
-    PrintBigFloatNumber(LN10);printf("\n");
-    // printf("COMPARE:%d \n",BigNumberCompare(Nr1,Nr2));
+    //printf("COMPARE:%d \n",BigNumberCompare(Nr1,Nr2));
     //printf("Product and Sum of :\n%s\nand\n%s\nis\n%s\n%s\n",ToString(Nr1),ToString(Nr2),ToString(Nr3),ToString(Nr5));
     //printf("Factorial of 3000 is :");PrintBigNumber(Factorial(3000));
+    
     FreeMemory(Nr1);
     FreeMemory(Nr2);
     FreeMemory(Nr3);
