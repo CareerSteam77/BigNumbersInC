@@ -2,7 +2,7 @@
 #include "BigNumberCriptography.h"
 #include <stdio.h>
 #define Size 100
-#define PrimeSize 250
+#define PrimeSize 200
 int main(void)
 {
     BigNumber* Nr1=Init("2550000123123999434341231405999999999999999999999999999999999999999999999999999922222222222222");
@@ -10,7 +10,7 @@ int main(void)
     BigNumber* Nr3=Init("2322986111");
     BigNumber* NrRand=GenerateRandomPositiveBigNumber(Size);
     BigNumber* NrRandPrime=GeneratePrime(PrimeSize);
-    BigNumber* Nr4=ModularExponetiation(Nr1,Nr2,Nr3);
+    BigNumber* Nr4=ModularExponentiation(Nr1,Nr2,Nr3);
     BigNumber* Nr5=GCD(Nr1,Nr2);
     BigNumber* Nr6=LCM(Nr1,Nr2);
     BigNumber* X; BigNumber* Y;BigNumber* Nr7=ExtendedEuclidean(Nr1,Nr2,&X,&Y);

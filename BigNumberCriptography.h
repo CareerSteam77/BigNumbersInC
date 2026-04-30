@@ -1,5 +1,6 @@
 #include "BigNumber.h"
-BigNumber* ModularExponetiation(BigNumber *Base,BigNumber *Exponent,BigNumber *Modulus); //Calculates (Base^Exponent) mod Modulus
+
+BigNumber* ModularExponentiation(BigNumber *Base,BigNumber *Exponent,BigNumber *Modulus); //Calculates (Base^Exponent) mod Modulus
 BigNumber *GCD(BigNumber *A, BigNumber *B); //Implementation of Stein`s BinaryGCD algorithm
 BigNumber* ExtendedEuclidean(BigNumber *A, BigNumber *B, BigNumber **X, BigNumber **Y);  //Calculates GreatestCommonDivizor + (Optional)Bezout Coefficients
 BigNumber *LCM(BigNumber *A,BigNumber *B); //Calculates Least Common Multiple

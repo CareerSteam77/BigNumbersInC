@@ -1,26 +1,30 @@
 #pragma once
+
+#include "Platform.h"
 #include<stdbool.h>
 #include<stdint.h>
-//First 100 digits of famous constants
-#define pi "3.1415926535897932384626433832795028841971693993751058209749445923078164062862089986280348253421170679"
-#define e  "2.7182818284590452353602874713526624977572470936999595749669676277240766303535475945713821785251664274"
+
+//First 100 digits of famous constants used in test
+#define BIGNUMBER_PI "3.1415926535897932384626433832795028841971693993751058209749445923078164062862089986280348253421170679"
+#define BIGNUMBER_E  "2.7182818284590452353602874713526624977572470936999595749669676277240766303535475945713821785251664274"
 
 typedef struct{
-    char* Digits; //absolute value of the number
+    char* Digits;             //absolute value of the number
     unsigned int NrOfDigits;  //size
-    bool IsNegative; //true if it is negative 
+    bool IsNegative;          //true if it is negative 
 }BigNumber;
 
 typedef struct{
-   BigNumber *Mantissa; //significand
+   BigNumber *Mantissa;       //significand
    int Exponent; 
-}BigFloatNumber;  // BigFloatNumber= significand* 10^Exponent ;Exemple: 123.45= 12345*10^(-2)
+}BigFloatNumber;              // BigFloatNumber= significand* 10^Exponent ;Exemple: 123.45= 12345*10^(-2)
 
 
 void InitializeBigNumberLibrary(unsigned int precision);
 void DistroyBigNumberLibrary();
 
-BigFloatNumber *FromBigNumber(BigNumber *Number); //Conversion from Int to Float
+bool* GetBinaryRepresentation(BigNumber* Number, int* OutNrOfBits, int *OutHammingWeight); //Generates the Binary reprezentation of a POSTIVE BigNumber stored in an array of booleans ,NrOfBits and HammingWeight are optional and can be set to NULL
+void PrintBinaryRepresentation(bool *BinaryRepresentation, int NrOfBits); //Prints the Binary Representation 
 
 BigNumber* Init(char* value); //Construct a BigNum from a string
 BigFloatNumber *InitFloat(char *value); //Construct a BigFloatNum from a string
@@ -36,9 +40,16 @@ BigNumber* Division(BigNumber* Dividend, BigNumber* Divisor,BigNumber** Remainde
 BigNumber* Power(BigNumber*Number,BigNumber *Power); //Return a new BIGINT equal to Number^Power , if Power is negative return 0, if power is Positive apply Exponentiation by squaring algoritm
 BigNumber* Modulo(BigNumber * Dividend, BigNumber *Modulus);  // Divident mod Modulus 
 
+BigFloatNumber *FromBigNumber(BigNumber *Number); //Conversion from Int to Float
 BigNumber* FromUnsignedIntegerToBigNum(unsigned int number); //Construct a BigINT from an unsigned integer
 BigNumber* FromSignedIntegerToBigNum(int number); //Construct a BigINT from an signed integer
 BigNumber* FromUnsignedInt128ToBigNum(__uint128_t Number); //Construct a BigINT from an uint128
+
+uint32_t BigNumberToUINT32(BigNumber*  Number); //Construct a UITN32 from a BigNumber 
+int32_t  BigNumberToINT32(BigNumber*   Number); //Construct a  ITN32 from a BigNumber 
+uint64_t BigNumberToUINT64(BigNumber*  Number); //Construct a UITN64 from a BigNumber 
+int64_t  BigNumberToINT64(BigNumber*   Number); //Construct a  ITN64 from a BigNumber 
+
 BigNumber* Factorial(unsigned int Number); //Calculates the factorial of an unsigned integer {(n+1)!=(n+1)*n! ,0!=1}
 
 BigFloatNumber* CalculatePiGaussLegendre(unsigned int precision); //Gauss-Legendre algoritm that calculates pi with precision digits
@@ -80,5 +91,7 @@ void MultiplyByNegativeOne(BigNumber *Number); //Modifies the NUMBER in MEMORY, 
 void DividByPowerOf10(BigNumber *Number, unsigned int Power); //Dividing an integer by a power of 10 Modifies the NUMBER in MEMORY, DOENST RETURN A NEW ONE
 
 #if defined(__SIZEOF_INT128__) 
-    BigNumber* FromUnsignedLongLongToBigNum(unsigned long long int Number); //Construct a BigINT from an unsigned long long int integer #endif
+    BigNumber* FromUnsignedLongLongToBigNum(unsigned long long int Number); //Construct a BigINT from an unsigned long long int integer
+    __uint128_t BigNumberToUINT128(BigNumber* Number);
+    __int128_t  BigNumberToINT128(BigNumber* Number);
 #endif 

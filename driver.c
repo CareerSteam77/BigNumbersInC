@@ -1,4 +1,5 @@
-#include<stdio.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include "BigNumber.h"
 int main(void)
 {   
@@ -19,11 +20,15 @@ int main(void)
     BigNumber* Nr7=Division(Nr1,Nr2,&Remainder);
     BigNumber *Nr8=Power(Nr1,Nr2);
     BigNumber* Nr9=Modulo(Nr1,Nr2);
+    
+    int NrOfBitsNr1;int HammingWeightNR1;int NrOfBitsNr2;
+    bool*Nr1Binary=GetBinaryRepresentation(Nr1,&NrOfBitsNr1,&HammingWeightNR1);
+    bool*Nr2Binary=GetBinaryRepresentation(Nr2,&NrOfBitsNr2,NULL);
 
     printf("After Initialization INT\n");
 
-    BigFloatNumber* NrF1=InitFloat(pi);
-    BigFloatNumber* NrF2=InitFloat(e);
+    BigFloatNumber* NrF1=InitFloat(BIGNUMBER_PI);
+    BigFloatNumber* NrF2=InitFloat(BIGNUMBER_E);
     BigFloatNumber* NrF4=FromBigNumber(Nr1);
     BigFloatNumber* NrF3=MultiplyFloat(NrF1,NrF2);
     BigFloatNumber* NrF5=SumFloat(NrF1,NrF2);
@@ -57,6 +62,9 @@ int main(void)
 
     printf("FirstNumber:");PrintBigNumber(Nr1);printf("Is even?:%d",IsEven(Nr1));printf("\n");
     printf("SecondNumber:");PrintBigNumber(Nr2);printf("Is odd?:%d",IsOdd(Nr2));printf("\n");
+    printf("Binary Representation of FirstNumber is :");PrintBinaryRepresentation(Nr1Binary,NrOfBitsNr1);printf("\n");
+    printf("Binary Representation of SecondNumber is :");PrintBinaryRepresentation(Nr2Binary,NrOfBitsNr2);printf("\n");
+    printf("Hamming Weight Of FirstNumber is ");printf("%d",HammingWeightNR1);printf("\n");
     printf("Sum:");PrintBigNumber(Nr3);printf("\n");
     printf("Subtract:");PrintBigNumber(Nr4);printf("\n");
     printf("Product:");PrintBigNumber(Nr6);printf("\n");
@@ -97,6 +105,9 @@ int main(void)
     
     FreeMemoryFloat(PI);
     FreeMemoryFloat(LN10);
+
+    free(Nr1Binary);
+    free(Nr2Binary);
 
     printf("After Memory Free\n");
 

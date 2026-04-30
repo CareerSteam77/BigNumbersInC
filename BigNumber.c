@@ -7,6 +7,7 @@
 #include<pthread.h>
 
 #define BurnikelZiegler_BOUND 64  //At how many digits should Burnikel-Ziegler be used instead of standard division
+
 #define Karatsuba_BOUND 128       //At how many digits should Karatsuba be used instead of standard multiplication
 #define ToomCook3Way_BOUND 1024   //At how many digits should ToomCook3Way be used for multiplication instead of Karatsuba
 
@@ -2267,6 +2268,93 @@ BigFloatNumber* MultiplyFloat(BigFloatNumber *Number1,BigFloatNumber *Number2) /
     return Number;
 }
 
+uint32_t BigNumberToUINT32(BigNumber* Number)
+{
+    if (Number == NULL || Number->Digits == NULL) return 0;
+    
+    uint32_t Result = 0;
+    for (long int i = Number->NrOfDigits - 1; i >= 0; i--) 
+    {
+        Result = Result * 10 + (Number->Digits[i] - '0');
+    }
+    
+    return Result;
+}
+
+int32_t BigNumberToINT32(BigNumber* Number)
+{
+    if (Number == NULL || Number->Digits == NULL) return 0;
+    
+    int32_t Result = 0;
+    for (long int i = Number->NrOfDigits - 1; i >= 0; i--) 
+    {
+        Result = Result * 10 + (Number->Digits[i] - '0');
+    }
+    
+    if(Number->IsNegative)
+      Result*=-1;
+
+    return Result;
+}
+
+uint64_t BigNumberToUINT64(BigNumber* Number)
+{
+    if (Number == NULL || Number->Digits == NULL) return 0;
+    
+    uint64_t Result = 0;
+    for (long int i = Number->NrOfDigits - 1; i >= 0; i--) 
+    {
+        Result = Result * 10 + (Number->Digits[i] - '0');
+    }
+    
+    return Result;
+}
+
+int64_t BigNumberToINT64(BigNumber* Number)
+{
+    if (Number == NULL || Number->Digits == NULL) return 0;
+    
+    int64_t Result = 0;
+    for (long int i = Number->NrOfDigits - 1; i >= 0; i--) 
+    {
+        Result = Result * 10 + (Number->Digits[i] - '0');
+    }
+    
+    if(Number->IsNegative)
+      Result*=-1;
+
+    return Result;
+}
+
+__uint128_t BigNumberToUINT128(BigNumber* Number)
+{
+    if (Number == NULL || Number->Digits == NULL) return 0;
+    
+    __uint128_t Result = 0;
+    for (long int i = Number->NrOfDigits - 1; i >= 0; i--) 
+    {
+        Result = Result * 10 + (Number->Digits[i] - '0');
+    }
+    
+    return Result;
+}
+
+__int128_t BigNumberToINT128(BigNumber* Number)
+{
+    if (Number == NULL || Number->Digits == NULL) return 0;
+    
+    __int128_t Result = 0;
+    for (long int i = Number->NrOfDigits - 1; i >= 0; i--) 
+    {
+        Result = Result * 10 + (Number->Digits[i] - '0');
+    }
+    
+    if(Number->IsNegative)
+      Result*=(__int128_t)-1;
+
+    return Result;
+}
+
 BigNumber* FromUnsignedIntegerToBigNum(unsigned int Number)
 {
     if (Number== 0) 
@@ -3597,6 +3685,77 @@ char *ToString(BigNumber *Number)
             String[index]=Number->Digits[Number->NrOfDigits-index-1];
         String[index]='\0';
         return String;
+      }
+}
+
+bool* GetBinaryRepresentation(BigNumber* Number, int* OutNrOfBits, int *OutHammingWeight)
+{
+    if(Number==NULL || Number->IsNegative==true) return NULL;
+
+    unsigned int MaxBits=Number->NrOfDigits * 4; //We safely allocate more space than needed than reallocate at the end
+    bool* Bits=malloc(sizeof(bool)*MaxBits);
+    if(Bits==NULL)
+      {
+        printf("Allocating bits array for binary reprezentation failed");
+        exit(-1);
+      }
+
+    unsigned int NrOfBits=0;                        
+    unsigned int HammingWeight = 0; //Hamming weight is simply the number of 1`s in the binary representation, will be used in deciding which ModularExponentiation algo to use
+    
+    BigNumber* Copy = CloneBigNumber(Number);
+    BigNumber* Zero = Init("0");
+    
+    if (IsEqual(Copy, Zero) == true)
+    {
+        Bits[0] = 0;
+        NrOfBits = 1;
+        HammingWeight = 0;
+        goto BinaryLabel;
+    }
+
+    while (IsEqual(Copy, Zero) == false)  //Binary Representation is also stored in reverse
+    {
+        bool bit=IsOdd(Copy);
+        Bits[NrOfBits] = bit;
+        HammingWeight += bit;
+        NrOfBits++;
+        DivizionBy2(Copy);
+    }
+    
+    BinaryLabel:
+    if(OutHammingWeight != NULL)
+      *OutHammingWeight = HammingWeight;
+
+    if(OutNrOfBits != NULL)
+      *OutNrOfBits = NrOfBits;
+
+    bool *TempBits= realloc(Bits,sizeof(bool)*NrOfBits);
+    if(TempBits==NULL)
+      {
+        printf("Realloction failed for Bit Representation");
+        free(Bits);
+        exit(-1);
+      }
+    Bits=TempBits;
+
+    FreeMemory(Copy);
+    FreeMemory(Zero);
+
+    return Bits;
+}
+
+void PrintBinaryRepresentation(bool *BinaryRepresentation, int NrOfBits)
+{
+    if(BinaryRepresentation==NULL || NrOfBits <=0) 
+    {
+      printf("BINARY REPRESENTATION IS NULL");
+      return;
+    }
+
+    for(int i=NrOfBits-1;i>=0;i--)
+      {
+         printf("%d",BinaryRepresentation[i]); //Binary Representation is also stored in reverse
       }
 }
 
