@@ -1,3 +1,5 @@
+#include "Platform.h"
+
 #include<stdint.h>
 #include<stdlib.h>
 #include<stdio.h>
@@ -2326,8 +2328,9 @@ int64_t BigNumberToINT64(BigNumber* Number)
     return Result;
 }
 
-__uint128_t BigNumberToUINT128(BigNumber* Number)
-{
+#if (SUPPORT_UINT128)
+ __uint128_t BigNumberToUINT128(BigNumber* Number)
+  {
     if (Number == NULL || Number->Digits == NULL) return 0;
     
     __uint128_t Result = 0;
@@ -2337,10 +2340,10 @@ __uint128_t BigNumberToUINT128(BigNumber* Number)
     }
     
     return Result;
-}
+ }
 
-__int128_t BigNumberToINT128(BigNumber* Number)
-{
+ __int128_t BigNumberToINT128(BigNumber* Number)
+ {
     if (Number == NULL || Number->Digits == NULL) return 0;
     
     __int128_t Result = 0;
@@ -2353,7 +2356,8 @@ __int128_t BigNumberToINT128(BigNumber* Number)
       Result*=(__int128_t)-1;
 
     return Result;
-}
+ }
+#endif
 
 BigNumber* FromUnsignedIntegerToBigNum(unsigned int Number)
 {

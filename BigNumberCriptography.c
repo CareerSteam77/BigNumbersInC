@@ -4,7 +4,6 @@
 #include <stdint.h>
 #include <stdio.h> 
 
-#define MAX_UINT128 (~((__uint128_t)0))    //Max Value of UINT128
 #define MILLER_RABIN_ROUNDS 4              //Following NIST standard , 4 rounds its sufficient 
 
 BigNumber *Constructor(char *Digits,unsigned int NrOfDigits,bool IsNegative)  //Construct a BigNumber WITHOUT reversing the string, used in Arithemic operations
@@ -169,9 +168,10 @@ BigNumber* ModularExponentiation64UINT(BigNumber *Base,uint64_t Exponent,BigNumb
     return Result;
 }
 
-BigNumber* ModularExponentiation128UINT(BigNumber *Base,__uint128_t Exponent,BigNumber *Modulus) 
-{
-   if (Base == NULL || Modulus == NULL) return NULL;
+#if(SUPPORT_UINT128)
+  BigNumber* ModularExponentiation128UINT(BigNumber *Base,__uint128_t Exponent,BigNumber *Modulus) 
+  {
+    if (Base == NULL || Modulus == NULL) return NULL;
     
     //Used for 38 digit exponents
     //Maximum performance due to hardware operations
@@ -207,7 +207,8 @@ BigNumber* ModularExponentiation128UINT(BigNumber *Base,__uint128_t Exponent,Big
     FreeMemory(NewBase);
 
     return Result;
-}
+  }
+#endif
 
 BigNumber* ModularExponetiationSquareAndMultiply(BigNumber *Base,BigNumber *Exponent,BigNumber *Modulus) //Calculates (Base^Exponent) mod Modulus in an efficient way
 {
@@ -380,11 +381,14 @@ BigNumber *ModularExponentiation(BigNumber *Base,BigNumber *Exponent,BigNumber *
          uint64_t exp64 = BigNumberToUINT64(Exponent);
          return ModularExponentiation64UINT(Base, exp64, Modulus);
     }
+
+  #if(SUPPORT_UINT128)
     if (ExponentDigits <= 38)
     {
          __uint128_t exp128 = BigNumberToUINT128(Exponent);
          return ModularExponentiation128UINT(Base, exp128, Modulus);
     }
+  #endif
     
     return ModularExponentiationSlidingWindow(Base, Exponent, Modulus);
 }
@@ -898,4 +902,44 @@ BigNumber *GeneratePrime(unsigned int NrOfDigits)  //Generates a Prime Number wi
   free(Remainders);
 
   return PotentialPrimeNumber;
+}
+
+BigNumber * ModularInverse(BigNumber *A ,BigNumber *M)
+{
+    //Function return the modular inverse of A modulo M ,denote Inverse with d such that d=A^(-1) (mod M) => d*A=1 (mod M) 
+    //We will use the Extended Euclidean Algorithm to calculate the Bezout Coeff 
+    //As the Bezout Coeff can be negative we will normalize it in the end by X <- M-|X| iff X<0
+
+    if(A==NULL || M==NULL) return NULL;
+
+    BigNumber *Inverse=NULL;
+    BigNumber *GreatestCommonDivisor=ExtendedEuclidean(A,M,&Inverse,NULL);
+    
+    BigNumber* One = Init("1");
+    if(GreatestCommonDivisor==NULL || IsEqual(One,GreatestCommonDivisor)==false)
+      {
+          //Modular Inverse does not exist, return NULL
+          if (GreatestCommonDivisor) FreeMemory(GreatestCommonDivisor);
+          if (Inverse)               FreeMemory(Inverse);
+          FreeMemory(One);
+          return NULL;
+      }
+    
+    if(Inverse->IsNegative==true)
+      {
+         // if X<0 then X <- M-|X| 
+        BigNumber* AbsInverse  = CloneBigNumber(Inverse);
+        AbsInverse->IsNegative = false;      
+        BigNumber* CorrectedInverse  = Subtract(M, AbsInverse);
+        
+        FreeMemory(AbsInverse);
+        FreeMemory(Inverse);
+
+        Inverse=CorrectedInverse;
+      }
+
+    FreeMemory(GreatestCommonDivisor);
+    FreeMemory(One);
+    
+    return Inverse;
 }

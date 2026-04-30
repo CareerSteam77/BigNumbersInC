@@ -2,7 +2,7 @@
 #include "BigNumberCriptography.h"
 #include <stdio.h>
 #define Size 100
-#define PrimeSize 200
+#define PrimeSize 100
 int main(void)
 {
     BigNumber* Nr1=Init("2550000123123999434341231405999999999999999999999999999999999999999999999999999922222222222222");
@@ -11,6 +11,7 @@ int main(void)
     BigNumber* NrRand=GenerateRandomPositiveBigNumber(Size);
     BigNumber* NrRandPrime=GeneratePrime(PrimeSize);
     BigNumber* Nr4=ModularExponentiation(Nr1,Nr2,Nr3);
+    BigNumber* Nr8=ModularInverse(Nr1,Nr2);
     BigNumber* Nr5=GCD(Nr1,Nr2);
     BigNumber* Nr6=LCM(Nr1,Nr2);
     BigNumber* X; BigNumber* Y;BigNumber* Nr7=ExtendedEuclidean(Nr1,Nr2,&X,&Y);
@@ -27,6 +28,7 @@ int main(void)
     printf("Steins Binary Algorithm Result Gcd(N1,Nr2) is:");PrintBigNumber(Nr5);printf("\n");
     printf("Extended Euclidian Result (with Bezout Coeff) is:");PrintBigNumber(Nr7);PrintBigNumber(X);PrintBigNumber(Y);printf("\n");
     printf("lcm(Nr1,Nr2) is :");PrintBigNumber(Nr6);
+    printf("Modular inverse of Nr1 mod Nr2 is ");PrintBigNumber(Nr8);
 
     FreeMemory(NrRand);
     FreeMemory(Nr1);
@@ -36,6 +38,7 @@ int main(void)
     FreeMemory(Nr5);
     FreeMemory(Nr6);
     FreeMemory(Nr7);FreeMemory(X);FreeMemory(Y);
+    FreeMemory(Nr8);
 
     printf("After Cleanup\n");
 }
