@@ -6,7 +6,7 @@
 
 #define MILLER_RABIN_ROUNDS 4              //Following NIST standard , 4 rounds its sufficient 
 
-BigNumber *Constructor(char *Digits,unsigned int NrOfDigits,bool IsNegative)  //Construct a BigNumber WITHOUT reversing the string, used in Arithemic operations
+static BigNumber *Constructor(char *Digits,unsigned int NrOfDigits,bool IsNegative)  //Construct a BigNumber WITHOUT reversing the string, used in Arithemic operations
 {
    BigNumber* Number=malloc(sizeof(BigNumber));
    if(Number==NULL)
@@ -22,7 +22,7 @@ BigNumber *Constructor(char *Digits,unsigned int NrOfDigits,bool IsNegative)  //
     return Number;
 }
 
-BigNumber* PrecomputeBarrettMu(BigNumber* M)
+static BigNumber* PrecomputeBarrettMu(BigNumber* M)
 {
   if(M==NULL) return NULL;
 
@@ -50,7 +50,7 @@ BigNumber* PrecomputeBarrettMu(BigNumber* M)
   return Mu;
 }
 
-BigNumber* BarrettModulo(BigNumber* Number,BigNumber* Modulus,BigNumber *Mu) //Optimization for ModularExponentiation, Barrett only works when Base < Modulus 
+static BigNumber* BarrettModulo(BigNumber* Number,BigNumber* Modulus,BigNumber *Mu) //Optimization for ModularExponentiation, Barrett only works when Base < Modulus 
 {
     if(Number == NULL || Modulus == NULL || Mu == NULL) return NULL;
 
@@ -84,7 +84,7 @@ BigNumber* BarrettModulo(BigNumber* Number,BigNumber* Modulus,BigNumber *Mu) //O
     
 }
 
-BigNumber* ModularExponentiation32UINT(BigNumber *Base,uint32_t Exponent,BigNumber *Modulus)  
+static BigNumber* ModularExponentiation32UINT(BigNumber *Base,uint32_t Exponent,BigNumber *Modulus)  
 {
    if (Base == NULL || Modulus == NULL) return NULL;
     
@@ -126,7 +126,7 @@ BigNumber* ModularExponentiation32UINT(BigNumber *Base,uint32_t Exponent,BigNumb
     return Result;
 }
 
-BigNumber* ModularExponentiation64UINT(BigNumber *Base,uint64_t Exponent,BigNumber *Modulus)  //Used for Public Exponent
+static BigNumber* ModularExponentiation64UINT(BigNumber *Base,uint64_t Exponent,BigNumber *Modulus)  //Used for Public Exponent
 {
    if (Base == NULL || Modulus == NULL) return NULL;
     
@@ -169,7 +169,7 @@ BigNumber* ModularExponentiation64UINT(BigNumber *Base,uint64_t Exponent,BigNumb
 }
 
 #if(SUPPORT_UINT128)
-  BigNumber* ModularExponentiation128UINT(BigNumber *Base,__uint128_t Exponent,BigNumber *Modulus) 
+  static BigNumber* ModularExponentiation128UINT(BigNumber *Base,__uint128_t Exponent,BigNumber *Modulus) 
   {
     if (Base == NULL || Modulus == NULL) return NULL;
     
@@ -210,7 +210,7 @@ BigNumber* ModularExponentiation64UINT(BigNumber *Base,uint64_t Exponent,BigNumb
   }
 #endif
 
-BigNumber* ModularExponetiationSquareAndMultiply(BigNumber *Base,BigNumber *Exponent,BigNumber *Modulus) //Calculates (Base^Exponent) mod Modulus in an efficient way
+static BigNumber* ModularExponetiationSquareAndMultiply(BigNumber *Base,BigNumber *Exponent,BigNumber *Modulus) //Calculates (Base^Exponent) mod Modulus in an efficient way
 {
     if(Base==NULL || Exponent==NULL || Modulus== NULL) return NULL;
 
@@ -257,7 +257,7 @@ BigNumber* ModularExponetiationSquareAndMultiply(BigNumber *Base,BigNumber *Expo
     return NewResult;
 }
 
-BigNumber *ModularExponentiationSlidingWindow(BigNumber *Base,BigNumber *Exponent,BigNumber *Modulus)
+static BigNumber *ModularExponentiationSlidingWindow(BigNumber *Base,BigNumber *Exponent,BigNumber *Modulus)
 {
     if(Base==NULL || Exponent==NULL || Modulus== NULL) return NULL;
 
@@ -687,7 +687,7 @@ BigNumber* GenerateRandomTrialNumberForRSA(unsigned int NrOfDigits)
 
 }
 
-unsigned int ModuloUnsignedInt(BigNumber* Number, unsigned int Divisor) // A fast modulo calculator for unsigned integer divizors O(N) time O(1) memory
+static unsigned int ModuloUnsignedInt(BigNumber* Number, unsigned int Divisor) // A fast modulo calculator for unsigned integer divizors O(N) time O(1) memory
 {
     if (Number == NULL || Divisor == 0) return 0;
 
@@ -701,7 +701,7 @@ unsigned int ModuloUnsignedInt(BigNumber* Number, unsigned int Divisor) // A fas
     return (unsigned int)remainder;
 }
 
-__uint128_t Modulo128Bit(BigNumber* Number, __uint128_t Divisor)  // A fast modulo calculator for 128 bit integer divizors O(N) time O(1) memory
+static __uint128_t Modulo128Bit(BigNumber* Number, __uint128_t Divisor)  // A fast modulo calculator for 128 bit integer divizors O(N) time O(1) memory
 {
     if (Number == NULL || Divisor == 0) return 0;
 

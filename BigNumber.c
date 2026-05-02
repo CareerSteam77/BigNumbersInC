@@ -65,7 +65,7 @@ static BigFloatNumber* INTERNAL_GLOBAL_LN10 = NULL;
 static unsigned int INTERNAL_GLOBAL_PRECISION = 0;
 
 
-void CleanTrailingZeros(BigNumber* Number)  //Eliminates Unecesary 0`s from the number
+static void CleanTrailingZeros(BigNumber* Number)  //Eliminates Unecesary 0`s from the number
 {
     while (Number->NrOfDigits>1 && (Number->Digits[Number->NrOfDigits - 1] == '0'))
     {
@@ -74,7 +74,7 @@ void CleanTrailingZeros(BigNumber* Number)  //Eliminates Unecesary 0`s from the 
     Number->Digits[Number->NrOfDigits] = '\0';
 }
 
-void CompressFloatInPlace(BigFloatNumber *Number) //Every tail 0 gets removed and added to the exponent thus shortening the Mantissa lenght facilitating faster arithmetic operations
+static void CompressFloatInPlace(BigFloatNumber *Number) //Every tail 0 gets removed and added to the exponent thus shortening the Mantissa lenght facilitating faster arithmetic operations
 {
   //Doesnt produce a new number, change happens in Memory  Time Complexity of O(NrOfDigits)
     if (Number == NULL || Number->Mantissa == NULL || Number->Mantissa->Digits == NULL) return;
@@ -129,7 +129,7 @@ void SwapNumbersInMemoryFloat(BigFloatNumber **Number1,BigFloatNumber **Number2)
    *Number2=Temporal;
 }
 
-bool GetIsNegativeFromAnInt(int number)
+static bool GetIsNegativeFromAnInt(int number)
  {
     if(number>=0)
        return false;
@@ -137,7 +137,7 @@ bool GetIsNegativeFromAnInt(int number)
        return true;
  }
 
-bool VerifyStringIsNumber(const char *Value)
+static bool VerifyStringIsNumber(const char *Value)
 {
   //check for string of the form "-x1x2x3..." and "x1x2x3..." where xi is a digit
     if(Value==NULL)
@@ -155,7 +155,7 @@ bool VerifyStringIsNumber(const char *Value)
     return true;
 }
 
-bool VerifyStringIsDecimal(const char *Value)
+static bool VerifyStringIsDecimal(const char *Value)
 {
   //check for string of the form "-x1x2..'.'x3..." and "x1x2..'.'x3..." where xi is a digit and it need to have one decimal
     if(Value==NULL || Value[0]=='\0')  //check for NULL and Empty string
@@ -387,7 +387,7 @@ void FreeMemoryFloat(BigFloatNumber *Number)
    free(Number);
 }
 
-void ShiftRightNPositions(BigNumber *Number,unsigned int N) //For multiplication by positive integer powers of 10 and for Long Division
+static void ShiftRightNPositions(BigNumber *Number,unsigned int N) //For multiplication by positive integer powers of 10 and for Long Division
 {  
   //DOESNT PRODUCE A NEW BIGINT, changes the argument in memory
 
@@ -849,7 +849,7 @@ BigFloatNumber* SubtractFloat(BigFloatNumber* Number1, BigFloatNumber* Number2)
   return Rezult;
 }
 
-BigNumber* StandardSquare(BigNumber* Number) 
+static BigNumber* StandardSquare(BigNumber* Number) 
 {
     if (Number == NULL) return NULL;
 
@@ -902,7 +902,7 @@ BigNumber* StandardSquare(BigNumber* Number)
     return RezultProduct;
 }
 
-BigNumber* StandardMultiply(BigNumber* Number1, BigNumber* Number2) //O(Size(Number1)*Size(Number2))
+static BigNumber* StandardMultiply(BigNumber* Number1, BigNumber* Number2) //O(Size(Number1)*Size(Number2))
 {
     unsigned int MaxPossibleDigits=Number1->NrOfDigits+Number2->NrOfDigits+1;
     bool IsNegative = (Number1->IsNegative != Number2->IsNegative);
@@ -959,7 +959,7 @@ BigNumber* StandardMultiply(BigNumber* Number1, BigNumber* Number2) //O(Size(Num
     return RezultProduct;
 }
 
-BigNumber* Karatsuba(BigNumber *Number1,BigNumber *Number2)
+static BigNumber* Karatsuba(BigNumber *Number1,BigNumber *Number2)
 {
     if((Number1->NrOfDigits == 1 && Number1->Digits[0] == '0') || (Number2->NrOfDigits == 1 && Number2->Digits[0] == '0'))
     {
@@ -1060,7 +1060,7 @@ BigNumber* Karatsuba(BigNumber *Number1,BigNumber *Number2)
     return Rezult;
 }
 
-BigNumber* KaratsubaMultiThreaded(BigNumber* Number1, BigNumber* Number2, unsigned short int NumberOfIterations);
+static BigNumber* KaratsubaMultiThreaded(BigNumber* Number1, BigNumber* Number2, unsigned short int NumberOfIterations);
 void* KaratsubaTheadFunc(void *argument)
 {
     ThreadArgumentKaratsuba *args = (ThreadArgumentKaratsuba*)argument;
@@ -1068,7 +1068,7 @@ void* KaratsubaTheadFunc(void *argument)
     return NULL;
 }
 
-BigNumber* KaratsubaMultiThreaded(BigNumber* Number1,BigNumber*Number2,unsigned short int NumberOfIterations) // For the 0,1,2,3... iterations of Karatsuba spawn for every recursive call a thread to compute Z0,Z1,Z3
+static BigNumber* KaratsubaMultiThreaded(BigNumber* Number1,BigNumber*Number2,unsigned short int NumberOfIterations) // For the 0,1,2,3... iterations of Karatsuba spawn for every recursive call a thread to compute Z0,Z1,Z3
 {
    //We should only spawn at maximum 27 threads per number depending on its size and in the future if the system suport this level of multithreading
    //NumberOfIterations will assigned in the Multiply function
@@ -1192,7 +1192,7 @@ BigNumber* KaratsubaMultiThreaded(BigNumber* Number1,BigNumber*Number2,unsigned 
     return Rezult;
 }
 
-BigNumber* KaratsubaSquared(BigNumber*Number)
+static BigNumber* KaratsubaSquared(BigNumber*Number)
 {   
     if (Number->NrOfDigits == 1 && Number->Digits[0] == '0')
       return Init("0");
@@ -1254,7 +1254,7 @@ BigNumber* KaratsubaSquared(BigNumber*Number)
     return Result;
 }
 
-BigNumber* KaratsubaSquaredMultiThreaded(BigNumber* Number ,unsigned short int NumberOfIterations);
+static BigNumber* KaratsubaSquaredMultiThreaded(BigNumber* Number ,unsigned short int NumberOfIterations);
 void* KaratsubaSquaredTheadFunc(void *argument)
 {
     ThreadArgumentKaratsubaSquared* args=( ThreadArgumentKaratsubaSquared*)argument;
@@ -1262,7 +1262,7 @@ void* KaratsubaSquaredTheadFunc(void *argument)
     return NULL;
 }
 
-BigNumber*  KaratsubaSquaredMultiThreaded(BigNumber*Number,unsigned short int NumberOfIterations)
+static BigNumber*  KaratsubaSquaredMultiThreaded(BigNumber*Number,unsigned short int NumberOfIterations)
 {
     if(Number->NrOfDigits <Karatsuba_BOUND)  //Base Case for Recursion
         return StandardSquare(Number);
@@ -1462,7 +1462,7 @@ void DividByPowerOf10(BigNumber *Number, unsigned int Power) //Dividing an integ
    CleanTrailingZeros(Number);
 }
 
-BigNumber* ExtractToomChunk(BigNumber* X, unsigned int start_index, unsigned int max_length) //O(N)
+static BigNumber* ExtractToomChunk(BigNumber* X, unsigned int start_index, unsigned int max_length) //O(N)
 {
     // If the chunk starts outside the bounds of the number, the chunk is just "0"
     if (start_index >= X->NrOfDigits) 
@@ -1499,7 +1499,7 @@ BigNumber* ExtractToomChunk(BigNumber* X, unsigned int start_index, unsigned int
     return Chunk;
 }
 
-void SplitToom3(BigNumber* Number, unsigned int k, BigNumber** x0, BigNumber** x1, BigNumber** x2) 
+static void SplitToom3(BigNumber* Number, unsigned int k, BigNumber** x0, BigNumber** x1, BigNumber** x2) 
 {
     if (Number == NULL) return;
 
@@ -1513,7 +1513,7 @@ void SplitToom3(BigNumber* Number, unsigned int k, BigNumber** x0, BigNumber** x
     *x2 = ExtractToomChunk(Number, 2 * k, k); 
 }
 
-BigNumber *ToomCook3Way(BigNumber* X,BigNumber* Y)
+static BigNumber *ToomCook3Way(BigNumber* X,BigNumber* Y)
 {
   if ((X->NrOfDigits == 1 && X->Digits[0] == '0') || (Y->NrOfDigits == 1 && Y->Digits[0] == '0'))
     {
@@ -1669,14 +1669,14 @@ BigNumber *ToomCook3Way(BigNumber* X,BigNumber* Y)
     return FinalResult;
 }
 
-BigNumber* ToomCook3WayMultiThreaded(BigNumber* X, BigNumber* Y, unsigned short int NumberOfIterations);
+static BigNumber* ToomCook3WayMultiThreaded(BigNumber* X, BigNumber* Y, unsigned short int NumberOfIterations);
 void* ToomCook3WayTheadFunc(void *argument)
 {
     ThreadArgumentToomCook *args = (ThreadArgumentToomCook*)argument;
     args->Result = ToomCook3WayMultiThreaded(args->Number1, args->Number2, args->Iterations); 
     return NULL;
 }
-BigNumber *ToomCook3WayMultiThreaded(BigNumber* X, BigNumber *Y,unsigned short int NumberOfInterations)
+static BigNumber *ToomCook3WayMultiThreaded(BigNumber* X, BigNumber *Y,unsigned short int NumberOfInterations)
 {
    if ((X->NrOfDigits == 1 && X->Digits[0] == '0') || (Y->NrOfDigits == 1 && Y->Digits[0] == '0'))
     {
@@ -1882,7 +1882,7 @@ BigNumber *ToomCook3WayMultiThreaded(BigNumber* X, BigNumber *Y,unsigned short i
 //====================STEP 5 RECOMPOSE
 //Final result will be R(t)=r_410^4k+r_310^3k+r_210^2k+r_110^k+r_0
 
-BigNumber *ToomCook3WaySquared(BigNumber *X)
+static BigNumber *ToomCook3WaySquared(BigNumber *X)
 {
     if(X->NrOfDigits==1 && X->Digits[0]=='0')
     {
@@ -2006,14 +2006,14 @@ BigNumber *ToomCook3WaySquared(BigNumber *X)
 //A MultiThreaded Version to ToomCook3WaySquared for really big numbers
 //Again the number of threads are growing exponentially (5^NumberOfIterations) 
 //With that being said on most Systems, NumberOfIterations should be 1 (or 2 on newer Intel CPU`s or 3 on ThreadRipper Systems)
-BigNumber *ToomCook3WaySquareMultiThreaded(BigNumber* X, unsigned short int NumberOfIterations);
+static BigNumber *ToomCook3WaySquareMultiThreaded(BigNumber* X, unsigned short int NumberOfIterations);
 void* ToomCook3WaySquareThreadFunc(void *argument)
 {
     ThreadArgumentToomCookSquared* args=(ThreadArgumentToomCookSquared*)argument;
     args->Result = ToomCook3WaySquareMultiThreaded(args->Number, args->Iterations); 
     return NULL;
 }
-BigNumber *ToomCook3WaySquareMultiThreaded(BigNumber* X, unsigned short int NumberOfIterations)
+static BigNumber *ToomCook3WaySquareMultiThreaded(BigNumber* X, unsigned short int NumberOfIterations)
 {
     if(X->NrOfDigits==1 && X->Digits[0]=='0')
     {
@@ -2482,7 +2482,7 @@ BigNumber* FromSignedIntegerToBigNum(int Number)
     return PrivateConstructor(Digits, NrOfDigits, IsNegative);
 }
 
-BigNumber* LongDivision(BigNumber* Dividend, BigNumber* Divisor,BigNumber **Remainder)  //Time Complexity O(Divident.size * Divizor.size) 
+static BigNumber* LongDivision(BigNumber* Dividend, BigNumber* Divisor,BigNumber **Remainder)  //Time Complexity O(Divident.size * Divizor.size) 
 {
     //LongDivision will always get positive numbers with restriction Divisior != 0 and Divident > Divizor
   
@@ -2582,7 +2582,7 @@ void DivideBySingleDigit(BigNumber* Number, unsigned int Divisor)
     CleanTrailingZeros(Number);
 }
 
-void NormalizeBurnikelZiegler(BigNumber* CloneDividend, BigNumber* CloneDivisor,int *OutScalar, int* OutPad)
+static void NormalizeBurnikelZiegler(BigNumber* CloneDividend, BigNumber* CloneDivisor,int *OutScalar, int* OutPad)
 {
     //In order to use Burnikel-Ziegler we need MSD(Divisor) >=5
     //We will multiply both numbers by a scallar factor c=floor(10/(MSD+1))
@@ -2614,7 +2614,7 @@ void NormalizeBurnikelZiegler(BigNumber* CloneDividend, BigNumber* CloneDivisor,
 
 }
 
-BigNumber* ExtractBigNumberBlock(BigNumber* Number, unsigned int StartIndex, unsigned int Lenght) 
+static BigNumber* ExtractBigNumberBlock(BigNumber* Number, unsigned int StartIndex, unsigned int Lenght) 
 {
     // If startingIndex is larger than number of digits return "0" 
     if (StartIndex >= Number->NrOfDigits) 
@@ -2646,7 +2646,7 @@ BigNumber* ExtractBigNumberBlock(BigNumber* Number, unsigned int StartIndex, uns
 
 //Optimized variant for (Top * 10^M) + Bottom  
 //Fills with zeros if Bottom is shorter than M.
-BigNumber* ConcatPad(BigNumber* Bottom, BigNumber* Top, unsigned int M) 
+static BigNumber* ConcatPad(BigNumber* Bottom, BigNumber* Top, unsigned int M) 
 {
     // If Top is Zero the result is the Bottom number
     if (Top->NrOfDigits == 1 && Top->Digits[0] == '0') 
@@ -2690,7 +2690,7 @@ BigNumber* ConcatPad(BigNumber* Bottom, BigNumber* Top, unsigned int M)
 }
 
 BigNumber* Divide3nBy2n(BigNumber* Dividend3n, BigNumber* Divisor2n, BigNumber** Remainder);
-BigNumber* BurnikelZieglerDivide(BigNumber* Dividend, BigNumber* Divisor, BigNumber** Remainder) //ONLY WORKS IF Dividend->NrOfDigits<=2*Divisor->NrOfDigits
+static BigNumber* BurnikelZieglerDivide(BigNumber* Dividend, BigNumber* Divisor, BigNumber** Remainder) //ONLY WORKS IF Dividend->NrOfDigits<=2*Divisor->NrOfDigits
 {
   if(Divisor->NrOfDigits <BurnikelZiegler_BOUND)
       {
@@ -2735,7 +2735,7 @@ BigNumber* BurnikelZieglerDivide(BigNumber* Dividend, BigNumber* Divisor, BigNum
     return FinalQuotient;
 }
 
-BigNumber* Divide3nBy2n(BigNumber* Dividend3n, BigNumber* Divisor2n, BigNumber** Remainder)
+static BigNumber* Divide3nBy2n(BigNumber* Dividend3n, BigNumber* Divisor2n, BigNumber** Remainder)
 {
   unsigned int M = Divisor2n->NrOfDigits / 2;
 
@@ -2788,7 +2788,7 @@ BigNumber* Divide3nBy2n(BigNumber* Dividend3n, BigNumber* Divisor2n, BigNumber**
     return EstimatedQuotient;
 }
 
-BigNumber* ArbitraryBurnikelZiegler(BigNumber* Dividend, BigNumber* Divisor, BigNumber** Remainder)
+static BigNumber* ArbitraryBurnikelZiegler(BigNumber* Dividend, BigNumber* Divisor, BigNumber** Remainder)
 { 
     if (Dividend->NrOfDigits <= 2 * Divisor->NrOfDigits) 
     {
@@ -3005,7 +3005,7 @@ void DivizionBy2Float(BigFloatNumber* Number)
 }
 
 
-BigFloatNumber* InverseInitialGuess(BigFloatNumber* Divisor)
+static BigFloatNumber* InverseInitialGuess(BigFloatNumber* Divisor)
 {
     unsigned int len = Divisor->Mantissa->NrOfDigits;
     BigNumber* GuessMantissa = NULL;
@@ -3182,7 +3182,7 @@ BigNumber* Modulo(BigNumber *Dividend, BigNumber *Modulus) //Very fast Modulo op
 }
 
 //Deprecated
-BigNumber* ModuloNewtonRaphson(BigNumber * Dividend, BigNumber *Modulus)  // Divident mod Modulus Complexity O(N^1.58) Avg and O(1) when Modulus =0,1,2 and Dividend<Modulus
+static BigNumber* ModuloNewtonRaphson(BigNumber * Dividend, BigNumber *Modulus)  // Divident mod Modulus Complexity O(N^1.58) Avg and O(1) when Modulus =0,1,2 and Dividend<Modulus
 {
   // We calcute the Modulo by Divident mod Modulus:= Dividend -Modulus*Floor(Dividend/Modulus)  and finding Dividend/Modulus using Newton`s method
     if(Dividend==NULL || Modulus==NULL) return NULL;
@@ -3478,7 +3478,7 @@ BigNumber* Factorial(unsigned int Number)
     return FactorialRezult;
 }
 
-BigFloatNumber* SquareRootInitialGuess(BigFloatNumber* Number)
+static BigFloatNumber* SquareRootInitialGuess(BigFloatNumber* Number)
 {
     if (Number == NULL || Number->Mantissa == NULL) return NULL;
     if (Number->Mantissa->IsNegative) 
@@ -3903,7 +3903,7 @@ BigFloatNumber* CalculatePiGaussLegendre(unsigned int precision) //Calculates pr
 // LN(S)~Pi/(2*AGM(1,4/S) where S should be a massive number
 // S is a BigFloat => S=x*10^M |ln()  => Ln(S)=Ln(x)+M*Ln(10) =>Ln(x)=Ln(S)-m*Ln(10)
 // For finding Ln(x) we need to scale X with M zeros of precision 
-BigFloatNumber* AGM(BigFloatNumber* A, BigFloatNumber* B, unsigned int precision)
+static BigFloatNumber* AGM(BigFloatNumber* A, BigFloatNumber* B, unsigned int precision)
 {
     // Calculate the leading zero sink inside AGM
     long int magA = (long int)A->Mantissa->NrOfDigits - 1 + A->Exponent;
