@@ -129,14 +129,6 @@ void SwapNumbersInMemoryFloat(BigFloatNumber **Number1,BigFloatNumber **Number2)
    *Number2=Temporal;
 }
 
-static bool GetIsNegativeFromAnInt(int number)
- {
-    if(number>=0)
-       return false;
-    else
-       return true;
- }
-
 static bool VerifyStringIsNumber(const char *Value)
 {
   //check for string of the form "-x1x2x3..." and "x1x2x3..." where xi is a digit
@@ -2689,7 +2681,7 @@ static BigNumber* ConcatPad(BigNumber* Bottom, BigNumber* Top, unsigned int M)
     return Result;
 }
 
-BigNumber* Divide3nBy2n(BigNumber* Dividend3n, BigNumber* Divisor2n, BigNumber** Remainder);
+static BigNumber* Divide3nBy2n(BigNumber* Dividend3n, BigNumber* Divisor2n, BigNumber** Remainder);
 static BigNumber* BurnikelZieglerDivide(BigNumber* Dividend, BigNumber* Divisor, BigNumber** Remainder) //ONLY WORKS IF Dividend->NrOfDigits<=2*Divisor->NrOfDigits
 {
   if(Divisor->NrOfDigits <BurnikelZiegler_BOUND)
@@ -3182,7 +3174,7 @@ BigNumber* Modulo(BigNumber *Dividend, BigNumber *Modulus) //Very fast Modulo op
 }
 
 //Deprecated
-static BigNumber* ModuloNewtonRaphson(BigNumber * Dividend, BigNumber *Modulus)  // Divident mod Modulus Complexity O(N^1.58) Avg and O(1) when Modulus =0,1,2 and Dividend<Modulus
+BigNumber* ModuloNewtonRaphson(BigNumber * Dividend, BigNumber *Modulus)  // Divident mod Modulus Complexity O(N^1.58) Avg and O(1) when Modulus =0,1,2 and Dividend<Modulus
 {
   // We calcute the Modulo by Divident mod Modulus:= Dividend -Modulus*Floor(Dividend/Modulus)  and finding Dividend/Modulus using Newton`s method
     if(Dividend==NULL || Modulus==NULL) return NULL;

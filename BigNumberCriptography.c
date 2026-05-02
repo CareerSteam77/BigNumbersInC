@@ -374,7 +374,7 @@ BigNumber *ModularExponentiation(BigNumber *Base,BigNumber *Exponent,BigNumber *
     if (ExponentDigits <= 9) 
     {
         uint32_t exp32 = BigNumberToUINT32(Exponent); 
-        return ModularExponentiation64UINT(Base, exp32, Modulus);
+        return ModularExponentiation32UINT(Base, exp32, Modulus);
     }
     if (ExponentDigits <= 19)
     {
@@ -685,20 +685,6 @@ BigNumber* GenerateRandomTrialNumberForRSA(unsigned int NrOfDigits)
 
     return Random;
 
-}
-
-static unsigned int ModuloUnsignedInt(BigNumber* Number, unsigned int Divisor) // A fast modulo calculator for unsigned integer divizors O(N) time O(1) memory
-{
-    if (Number == NULL || Divisor == 0) return 0;
-
-    unsigned long long int remainder = 0; 
-    for (long int i = Number->NrOfDigits - 1; i >= 0; i--) 
-    {
-        unsigned int current_digit = Number->Digits[i] - '0';
-        remainder = (remainder * 10 + current_digit) % Divisor;
-    }
-
-    return (unsigned int)remainder;
 }
 
 static __uint128_t Modulo128Bit(BigNumber* Number, __uint128_t Divisor)  // A fast modulo calculator for 128 bit integer divizors O(N) time O(1) memory
